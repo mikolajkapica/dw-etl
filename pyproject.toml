@@ -25,7 +25,7 @@ dependencies = [
     # Database connectivity
     "sqlalchemy>=2.0.0",
     "pyodbc>=4.0.39",
-    "pymssql>=2.2.8",
+    # "pymssql>=2.3.4", Needed but fails 
     
     # Data quality and fuzzy matching
     "thefuzz[speedup]>=0.22.0",
@@ -64,10 +64,10 @@ Documentation = "https://your-org.github.io/himalayan-expeditions-etl"
 himalayan-etl = "himalayan_etl.cli:main"
 
 [tool.setuptools.packages.find]
-where = ["src"]
+where = [""]
 
 [tool.setuptools.package-dir]
-"" = "src"
+"" = "."
 
 [tool.black]
 line-length = 88
@@ -100,3 +100,6 @@ addopts = [
     "--cov-report=term-missing",
     "--cov-fail-under=80",
 ]
+
+[tool.dagster]
+module_name = "himalayan_etl.main"

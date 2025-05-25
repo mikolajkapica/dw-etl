@@ -13,12 +13,12 @@ import os
 from pathlib import Path
 
 # Import modules to test
-from src.himalayan_etl.resources import DatabaseResource, FileSystemResource, ETLConfigResource
-from src.himalayan_etl.ops.extraction import extract_expeditions_csv, validate_data_sources
-from src.himalayan_etl.ops.cleaning import clean_expeditions_data, standardize_text_fields
-from src.himalayan_etl.ops.dimensions import create_date_dimension, create_dim_peak
-from src.himalayan_etl.ops.facts import prepare_fact_expeditions
-from src.himalayan_etl.ops.automation import detect_incremental_changes, apply_fuzzy_name_matching
+from himalayan_etl.resources import DatabaseResource, FileSystemResource, ETLConfigResource
+from himalayan_etl.ops.extraction import extract_expeditions_csv, validate_data_sources
+from himalayan_etl.ops.cleaning import clean_expeditions_data, standardize_text_fields
+from himalayan_etl.ops.dimensions import create_date_dimension, create_dim_peak
+from himalayan_etl.ops.facts import prepare_fact_expeditions
+from himalayan_etl.ops.automation import detect_incremental_changes, apply_fuzzy_name_matching
 
 
 class TestFileSystemResource:
