@@ -424,67 +424,45 @@ def clean_world_bank_data(
     
     try:
         # 1. Identify year columns
-        year_columns = [col for col in df.columns 
-                       if col.replace(" [YR", "").replace("]", "").isdigit() 
-                       and 1960 <= int(col.replace(" [YR", "").replace("]", "")) <= 2030]
-        
-        if not year_columns:
-            context.log.error("No year columns found in World Bank data")
-            return pd.DataFrame()
-        
-        context.log.info(f"Found {len(year_columns)} year columns")
-        
-        # 2. Melt from wide to long format
-        id_vars = ["Country Name", "Country Code", "Series Name", "Series Code"]
-        df_long = df.melt(
-            id_vars=id_vars,
-            value_vars=year_columns,
-            var_name="Year_Column",
-            value_name="Value"
-        )
-        
-        # 3. Extract year from column name
-        df_long["Year"] = df_long["Year_Column"].str.extract(r"(\d{4})").astype(int)
-        df_long = df_long.drop("Year_Column", axis=1)
-        
-        # 4. Clean country information
-        df_long["Country Code"] = df_long["Country Code"].str.strip().str.upper()
-        df_long["Country Name"] = _clean_text_field(df_long["Country Name"])
-        
-        # 5. Clean indicator information
-        df_long["Series Code"] = df_long["Series Code"].str.strip()
-        df_long["Series Name"] = _clean_text_field(df_long["Series Name"])
-        
-        # 6. Convert values to numeric
-        df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
-        
-        # 7. Remove rows with missing values
-        initial_long_rows = len(df_long)
-        df_long = df_long.dropna(subset=["Value"])
-        removed_na = initial_long_rows - len(df_long)
-        
+        df = df.rename(columns={
+            "country_code": "Country Code",
+            "country_name": "Country Name",
+            "indicator_code": "Series Code",
+            "indicator_name": "Series Name",
+            "year": "Year",
+            "value": "Value"
+        })
+
+        # Ensure correct types
+        df["Year"] = pd.to_numeric(df["Year"], errors="coerce").astype("Int64")
+        df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
+
+        # Remove rows with missing values
+        initial_long_rows = len(df)
+        df = df.dropna(subset=["Value"])
+        removed_na = initial_long_rows - len(df)
+
         context.log.info(f"Removed {removed_na} rows with missing indicator values")
-        
-        # 8. Filter for reasonable years (optional - keep all years for now)
-        # df_long = df_long[df_long["Year"] >= 1960]
-        
-        # 9. Add data source metadata
-        df_long["Data_Source"] = "World Bank"
-        df_long["Last_Updated"] = datetime.now()
-        
-        # 10. Sort by country, indicator, and year
-        df_long = df_long.sort_values(["Country Code", "Series Code", "Year"])
-        
-        final_rows = len(df_long)
+
+        # Filter for reasonable years (optional - keep all years >= 1960)
+        df = df[df["Year"] >= 1960]
+
+        # Add data source metadata
+        df["Data_Source"] = "World Bank"
+        df["Last_Updated"] = datetime.now()
+
+        # Sort by country, indicator, and year
+        df = df.sort_values(["Country Code", "Series Code", "Year"])
+
+        final_rows = len(df)
         context.log.info(f"World Bank data cleaning completed")
         context.log.info(f"Original records: {initial_rows}")
         context.log.info(f"Final records: {final_rows}")
-        context.log.info(f"Unique countries: {df_long['Country Code'].nunique()}")
-        context.log.info(f"Unique indicators: {df_long['Series Code'].nunique()}")
-        context.log.info(f"Year range: {df_long['Year'].min()} - {df_long['Year'].max()}")
-        
-        return df_long
-        
+        context.log.info(f"Unique countries: {df['Country Code'].nunique()}")
+        context.log.info(f"Unique indicators: {df['Series Code'].nunique()}")
+        context.log.info(f"Year range: {df['Year'].min()} - {df['Year'].max()}")
+
+        return df
     except Exception as e:
         context.log.error(f"Failed to clean World Bank data: {str(e)}")
         raise

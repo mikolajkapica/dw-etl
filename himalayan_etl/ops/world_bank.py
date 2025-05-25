@@ -23,12 +23,11 @@ world_bank_config_schema = {
     "timeout": Field(Int, default_value=30),
     "retry_attempts": Field(Int, default_value=3),
     "indicators": Field(DagsterArray(String), default_value=[
-        "NY.GDP.PCAP.CD",      # GDP per capita (current US$)
-        "SP.POP.TOTL",         # Population, total
-        "SP.DYN.LE00.IN",      # Life expectancy at birth, total (years)
-        "SE.ADT.LITR.ZS",      # Literacy rate, adult total (% of people ages 15 and above)
-        "SH.XPD.CHEX.PC.CD",   # Current health expenditure per capita (current US$)
-        "AG.LND.TOTL.K2"       # Land area (sq. km)
+        "NY.GDP.PCAP.CD",      # GDP per capita (current US$) - GdpPerCapita
+        "HD.HCI.OVRL",         # Human Capital Index (HCI) overall - HumanCapitalIndex
+        "IT.NET.USER.ZS",      # Individuals using the Internet (% of population) - InternetUsersPercent
+        "SH.MED.PHYS.ZS",      # Physicians (per 1,000 people) - PhysiciansPer1000
+        "PV.EST",              # Political Stability and Absence of Violence/Terrorism: Estimate - PoliticalStabilityIndex
     ]),
     "start_year": Field(Int, default_value=1960),
     "end_year": Field(Int, default_value=2023)
@@ -39,11 +38,11 @@ world_bank_config_schema = {
     out=Out(pd.DataFrame, description="Raw World Bank data"),
     config_schema=world_bank_config_schema,
     retry_policy=RetryPolicy(max_retries=3, delay=5),
-    description="Extract World Development Indicators data from World Bank API"
+    description="Extract World Development Indicators data from World Bank API",
+    required_resource_keys={"fs", "etl_config"},
 )
 def extract_world_bank_data(
     context,
-    etl_config: ETLConfigResource
 ) -> pd.DataFrame:
     """
     Extract World Development Indicators data from the World Bank API.
@@ -52,6 +51,8 @@ def extract_world_bank_data(
     that appear in the Himalayan expeditions data.
     """
     context.log.info(f"Starting World Bank data extraction for {len(context.op_config['indicators'])} indicators")
+
+    etl_config: ETLConfigResource = context.resources.etl_config
     
     try:
         all_data = []
@@ -60,16 +61,15 @@ def extract_world_bank_data(
             context.log.info(f"Fetching data for indicator: {indicator}")
             
             # Construct API URL
-            url = f"{context.op_config['base_url']}/country/all/indicator/{indicator}"
+            url = f"{context.op_config['base_url']}/country/all/indicator/{indicator}" 
             params = {
                 'format': 'json',
-                'date': f"{world_bank_config_schema.start_year}:{world_bank_config_schema.end_year}",
+                'date': f"{context.op_config['start_year']}:{context.op_config['end_year']}",
                 'per_page': 10000,
                 'page': 1
             }
-            
             try:
-                response = requests.get(url, params=params, timeout=world_bank_config_schema.timeout)
+                response = requests.get(url, params=params, timeout=context.op_config['timeout'])
                 response.raise_for_status()
                 
                 data = response.json()
@@ -112,16 +112,16 @@ def extract_world_bank_data(
 
 
 @op(
-        ins={"wb_data": In(pd.DataFrame)},
+    ins={"wb_data": In(pd.DataFrame)},
     out=Out(pd.DataFrame, description="Cleaned World Bank data"),
     config_schema=world_bank_config_schema,
     retry_policy=RetryPolicy(max_retries=2, delay=2),
-    description="Clean and standardize World Bank data"
+    description="Clean and standardize World Bank data",
+    required_resource_keys={"etl_config"},
 )
 def clean_world_bank_data(
     context,
-    wb_data: pd.DataFrame,
-    etl_config: ETLConfigResource
+    wb_data: pd.DataFrame
 ) -> pd.DataFrame:
     """
     Clean and standardize World Bank data.
@@ -132,6 +132,7 @@ def clean_world_bank_data(
         return pd.DataFrame()
     
     context.log.info(f"Cleaning {len(wb_data)} World Bank records")
+    etl_config: ETLConfigResource = context.resources.etl_config
     
     try:
         cleaned_df = wb_data.copy()
@@ -199,15 +200,13 @@ def create_dim_country_indicators(
         
         # Flatten column names
         pivot_df.columns.name = None
-        
-        # Rename indicator columns to more readable names
+          # Rename indicator columns to more readable names
         indicator_mappings = {
             'NY.GDP.PCAP.CD': 'GDP_PER_CAPITA_USD',
-            'SP.POP.TOTL': 'POPULATION_TOTAL',
-            'SP.DYN.LE00.IN': 'LIFE_EXPECTANCY_YEARS',
-            'SE.ADT.LITR.ZS': 'LITERACY_RATE_PERCENT',
-            'SH.XPD.CHEX.PC.CD': 'HEALTH_EXPENDITURE_PER_CAPITA_USD',
-            'AG.LND.TOTL.K2': 'LAND_AREA_SQ_KM'
+            'HD.HCI.OVRL': 'HUMAN_CAPITAL_INDEX',
+            'IT.NET.USER.ZS': 'INTERNET_USERS_PERCENT',
+            'SH.MED.PHYS.ZS': 'PHYSICIANS_PER_1000',
+            'PV.EST': 'POLITICAL_STABILITY_INDEX'
         }
         
         # Rename columns
@@ -222,23 +221,18 @@ def create_dim_country_indicators(
             'country_name_standardized': 'COUNTRY_NAME',
             'year': 'YEAR'
         })
-        
-        # Calculate derived indicators
-        if 'GDP_PER_CAPITA_USD' in pivot_df.columns and 'POPULATION_TOTAL' in pivot_df.columns:
-            pivot_df['GDP_TOTAL_USD'] = (
-                pivot_df['GDP_PER_CAPITA_USD'] * pivot_df['POPULATION_TOTAL']
-            ).round(0)
+          # Calculate derived indicators (removed GDP_TOTAL calculation since no population data)
+        # Could add other derived metrics here if needed
         
         # Add metadata columns
         pivot_df['LAST_UPDATED'] = datetime.now()
         pivot_df['DATA_SOURCE'] = 'World Bank API'
-        
-        # Select final columns
+          # Select final columns
         dimension_columns = [
             'INDICATOR_KEY', 'COUNTRY_CODE', 'COUNTRY_NAME', 'YEAR',
-            'GDP_PER_CAPITA_USD', 'POPULATION_TOTAL', 'LIFE_EXPECTANCY_YEARS',
-            'LITERACY_RATE_PERCENT', 'HEALTH_EXPENDITURE_PER_CAPITA_USD',
-            'LAND_AREA_SQ_KM', 'GDP_TOTAL_USD', 'LAST_UPDATED', 'DATA_SOURCE'
+            'GDP_PER_CAPITA_USD', 'HUMAN_CAPITAL_INDEX', 'INTERNET_USERS_PERCENT',
+            'PHYSICIANS_PER_1000', 'POLITICAL_STABILITY_INDEX',
+            'LAST_UPDATED', 'DATA_SOURCE'
         ]
         
         # Keep only columns that exist
@@ -280,12 +274,12 @@ def load_dim_country_indicators(
     context.log.info(f"Loading {len(dim_country_indicators)} country indicator records")
     
     try:
-        # Use upsert to handle updates
+        # Use upsert to handle updates       
         load_result = db.upsert_dataframe(
             dataframe=dim_country_indicators,
             table_name='DIM_CountryIndicators',
             key_columns=['COUNTRY_CODE', 'YEAR'],
-            batch_size=world_bank_config_schema.batch_size
+            batch_size=context.op_config['batch_size']
         )
         
         context.log.info(f"Successfully loaded country indicators dimension: {load_result}")
@@ -308,15 +302,13 @@ def _apply_data_validation(df: pd.DataFrame, context) -> pd.DataFrame:
     """
     
     initial_count = len(df)
-    
-    # Define reasonable ranges for each indicator
+      # Define reasonable ranges for each indicator
     validation_rules = {
         'NY.GDP.PCAP.CD': (0, 200000),        # GDP per capita
-        'SP.POP.TOTL': (1000, 2000000000),    # Population
-        'SP.DYN.LE00.IN': (20, 100),          # Life expectancy
-        'SE.ADT.LITR.ZS': (0, 100),           # Literacy rate
-        'SH.XPD.CHEX.PC.CD': (0, 20000),      # Health expenditure
-        'AG.LND.TOTL.K2': (1, 20000000)       # Land area
+        'HD.HCI.OVRL': (0, 1),                # Human Capital Index (0-1 scale)
+        'IT.NET.USER.ZS': (0, 100),           # Internet users percentage
+        'SH.MED.PHYS.ZS': (0, 100),           # Physicians per 1000 people
+        'PV.EST': (-3, 3),                    # Political Stability Index (-2.5 to 2.5 scale)
     }
     
     # Apply validation rules

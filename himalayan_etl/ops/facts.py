@@ -49,9 +49,7 @@ def prepare_fact_expeditions(
     dim_route: pd.DataFrame,
     dim_expedition_status: pd.DataFrame,
     dim_host_country: pd.DataFrame,
-    dim_member: pd.DataFrame,
-    etl_config: ETLConfigResource,
-    db: DatabaseResource
+    dim_member: pd.DataFrame
 ) -> pd.DataFrame:
     """
     Transform and join data to create the fact table.
@@ -253,12 +251,12 @@ def prepare_bridge_expedition_members(
     out=Out(Dict[str, Any], description="Load results"),
     config_schema=fact_config_schema,
     retry_policy=RetryPolicy(max_retries=3, delay=2),
-    description="Load fact table data into the database"
+    description="Load fact table data into the database",
+    required_resource_keys={"db"}
 )
 def load_fact_expeditions(
     context,
-    fact_data: pd.DataFrame,
-    db: DatabaseResource
+    fact_data: pd.DataFrame
 ) -> Dict[str, Any]:
     """
     Load the prepared fact table data into the database.
@@ -268,7 +266,7 @@ def load_fact_expeditions(
     
     try:
         # Load data using bulk insert
-        load_result = db.bulk_insert_dataframe(
+        load_result = context.resources.db.bulk_insert_dataframe(
             dataframe=fact_data,
             table_name='FACT_Expeditions',
             batch_size=context.op_config["batch_size"]
@@ -293,12 +291,12 @@ def load_fact_expeditions(
     out=Out(Dict[str, Any], description="Load results"),
     config_schema=fact_config_schema,
     retry_policy=RetryPolicy(max_retries=3, delay=2),
-    description="Load bridge table data into the database"
+    description="Load bridge table data into the database",
+    required_resource_keys={"db"}
 )
 def load_bridge_expedition_members(
     context,
-    bridge_data: pd.DataFrame,
-    db: DatabaseResource
+    bridge_data: pd.DataFrame
 ) -> Dict[str, Any]:
     """
     Load the bridge table data into the database.
@@ -308,7 +306,7 @@ def load_bridge_expedition_members(
     
     try:
         # Load data using bulk insert
-        load_result = db.bulk_insert_dataframe(
+        load_result = context.resources.db.bulk_insert_dataframe(
             dataframe=bridge_data,
             table_name='BRIDGE_ExpeditionMembers',
             batch_size=context.op_config["batch_size"]

@@ -720,21 +720,64 @@ def create_dim_host_country(
         pd.DataFrame: Host country dimension data
     """
     context.log.info("Creating host country dimension")
-    
+    config: ETLConfigResource = context.resources.etl_config
+
     try:
-        # Extract unique host countries from expeditions
-        countries = enhanced_expeditions[['HOST', 'BCOUNTRY']].drop_duplicates()
-        countries = countries.dropna(subset=['HOST'])
+        # Extract unique host countries from expeditions using HOST column
+        if 'HOST' not in enhanced_expeditions.columns:
+            context.log.error("HOST column not found in expeditions data")
+            raise ValueError("HOST column not found in expeditions data")
+            
+        # Get unique host country codes
+        host_countries = enhanced_expeditions['HOST'].dropna().unique()
+        context.log.info(f"Found {len(host_countries)} unique host countries: {sorted(host_countries)}")
         
-        # Create dimension DataFrame
-        dim_host_country = pd.DataFrame({
-            'CountryCode': countries['HOST'],
-            'CountryName': countries['BCOUNTRY'],
-            'Region': countries['HOST'].apply(lambda x: _get_country_region(x)[0]),
-            'Subregion': countries['HOST'].apply(lambda x: _get_country_region(x)[1]),
+        # Create country mapping from HOST codes to names
+        country_mapping = {
+            '1': 'Nepal',
+            '2': 'India', 
+            '3': 'Pakistan',
+            '4': 'China',
+            '5': 'Tibet',  # Historical reference
+            '6': 'Bhutan',
+            '7': 'Myanmar',
+            '8': 'Japan',  # Some peaks may be listed with different host codes
+        }
+        
+        # Create dimension records
+        host_country_records = []
+        for host_code in sorted(host_countries):
+            # Convert to string and get country name
+            host_str = str(int(host_code)) if pd.notna(host_code) else 'UNK'
+            country_name = country_mapping.get(host_str, f"Country_{host_str}")
+            
+            # Get standardized country name if available in config
+            standardized_name = _get_standardized_country_name(country_name, config)
+            
+            # Get region information
+            region, subregion = _get_country_region(country_name[:3].upper())
+            
+            host_country_records.append({
+                'CountryCode': host_str,
+                'CountryName': standardized_name,
+                'Region': region,
+                'Subregion': subregion,
+                'CreatedDate': datetime.now(),
+                'ModifiedDate': datetime.now()
+            })
+        
+        # Add unknown country entry
+        host_country_records.append({
+            'CountryCode': 'UNK',
+            'CountryName': 'Unknown',
+            'Region': 'Unknown',
+            'Subregion': 'Unknown',
             'CreatedDate': datetime.now(),
             'ModifiedDate': datetime.now()
         })
+        
+        # Create dimension DataFrame
+        dim_host_country = pd.DataFrame(host_country_records)
         
         # Remove duplicates and sort
         dim_host_country = dim_host_country.drop_duplicates(subset=['CountryCode'])
