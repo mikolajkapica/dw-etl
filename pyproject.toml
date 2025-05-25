@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "himalayan-expeditions-etl"
+version = "1.0.0"
+description = "ETL pipeline for Himalayan Expeditions Data Warehouse using Dagster"
+authors = [
+    {name = "Data Engineering Team", email = "data@example.com"},
+]
+readme = "README.md"
+requires-python = ">=3.8"
+license = {text = "MIT"}
+
+dependencies = [
+    # Core ETL framework
+    "dagster>=1.6.0",
+    "dagster-webserver>=1.6.0",
+    
+    # Data processing
+    "pandas>=2.0.0",
+    "numpy>=1.24.0",
+    
+    # Database connectivity
+    "sqlalchemy>=2.0.0",
+    "pyodbc>=4.0.39",
+    "pymssql>=2.2.8",
+    
+    # Data quality and fuzzy matching
+    "thefuzz[speedup]>=0.22.0",
+    "python-Levenshtein>=0.21.0",
+    
+    # File I/O
+    "openpyxl>=3.1.0",
+    "xlrd>=2.0.0",
+    
+    # World Bank API (optional for direct API access)
+    "wbgapi>=1.0.12",
+    "requests>=2.31.0",
+    
+    # Utilities
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0",
+    "click>=8.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.7.0",
+    "flake8>=6.0.0",
+    "mypy>=1.5.0",
+    "pre-commit>=3.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/your-org/himalayan-expeditions-etl"
+Repository = "https://github.com/your-org/himalayan-expeditions-etl"
+Documentation = "https://your-org.github.io/himalayan-expeditions-etl"
+
+[project.scripts]
+himalayan-etl = "himalayan_etl.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ['py38', 'py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  \.git
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--cov=himalayan_etl",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--cov-fail-under=80",
+]
