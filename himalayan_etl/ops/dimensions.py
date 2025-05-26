@@ -78,8 +78,7 @@ def create_dim_date(
         end_date = datetime(max_year, 12, 31)
         
         date_range = pd.date_range(start=start_date, end=end_date, freq='D')
-        
-        # Create date dimension DataFrame
+          # Create date dimension DataFrame
         dim_date = pd.DataFrame({
             'Date': date_range,
             'Year': date_range.year,
@@ -92,6 +91,13 @@ def create_dim_date(
             'DayName': date_range.strftime('%A'),
             'IsWeekend': (date_range.dayofweek >= 5).astype(int),
         })
+          # Create DateKey and DATE_KEY columns for fact table joining
+        dim_date['DATE_KEY'] = (
+            dim_date['Year'].astype(str) + 
+            dim_date['Quarter'].astype(str).str.zfill(2) + 
+            '01'
+        ).astype(int)
+        dim_date['DateKey'] = range(1, len(dim_date) + 1)
         
         # Add season based on month
         def get_season(month):
@@ -185,7 +191,7 @@ def create_dim_nationality(
             
             # Get region information (simplified)
             region, subregion = _get_country_region(country_code)
-            
+            # 
             nationality_records.append({
                 'CountryCode': country_code,
                 'CountryName': country_name,
@@ -206,11 +212,13 @@ def create_dim_nationality(
             'CreatedDate': datetime.now(),
             'ModifiedDate': datetime.now(),
         })
-        
         dim_nationality = pd.DataFrame(nationality_records)
         
         # Remove duplicates based on country code
         dim_nationality = dim_nationality.drop_duplicates(subset=['CountryCode'], keep='first')
+        
+        # Add surrogate key
+        dim_nationality['NationalityKey'] = range(1, len(dim_nationality) + 1)
         
         context.log.info(f"Created nationality dimension with {len(dim_nationality)} records")
         
@@ -330,9 +338,11 @@ def create_dim_peak(
         # Only include columns that exist
         available_columns = [col for col in final_columns if col in dim_peak.columns]
         dim_peak = dim_peak[available_columns]
-        
-        # Remove duplicates
+          # Remove duplicates
         dim_peak = dim_peak.drop_duplicates(subset=['PeakID'], keep='first')
+        
+        # Add surrogate key
+        dim_peak['PeakKey'] = range(1, len(dim_peak) + 1)
         
         context.log.info(f"Created peak dimension with {len(dim_peak)} records")
         context.log.info(f"Height range: {dim_peak['HeightMeters'].min():.0f}m to {dim_peak['HeightMeters'].max():.0f}m")
@@ -412,11 +422,15 @@ def create_dim_expedition_status(
             'CreatedDate': datetime.now(),
             'ModifiedDate': datetime.now(),
         })
-        
         dim_status = pd.DataFrame(status_records)
-        
+    
         # Remove duplicates
         dim_status = dim_status.drop_duplicates(subset=['TerminationReason'], keep='first')
+        
+        # Add surrogate key
+        dim_status['StatusKey'] = range(1, len(dim_status) + 1)
+        
+        context.log.info(f"Created expedition status dimension with {len(dim_status)} records")
         
         context.log.info(f"Created expedition status dimension with {len(dim_status)} records")
         
@@ -506,8 +520,10 @@ def create_dim_route(
             'CreatedDate': datetime.now(),
             'ModifiedDate': datetime.now(),
         }])
-        
         dim_route = pd.concat([dim_route, unknown_route], ignore_index=True)
+        
+        # Add surrogate key
+        dim_route['RouteKey'] = range(1, len(dim_route) + 1)
         
         context.log.info(f"Created route dimension with {len(dim_route)} records")
         
@@ -747,21 +763,12 @@ def create_dim_host_country(
         # Create dimension records
         host_country_records = []
         for host_code in sorted(host_countries):
-            # Convert to string and get country name
             host_str = str(int(host_code)) if pd.notna(host_code) else 'UNK'
             country_name = country_mapping.get(host_str, f"Country_{host_str}")
-            
-            # Get standardized country name if available in config
             standardized_name = _get_standardized_country_name(country_name, config)
-            
-            # Get region information
-            region, subregion = _get_country_region(country_name[:3].upper())
-            
             host_country_records.append({
                 'CountryCode': host_str,
                 'CountryName': standardized_name,
-                'Region': region,
-                'Subregion': subregion,
                 'CreatedDate': datetime.now(),
                 'ModifiedDate': datetime.now()
             })
@@ -782,9 +789,8 @@ def create_dim_host_country(
         # Remove duplicates and sort
         dim_host_country = dim_host_country.drop_duplicates(subset=['CountryCode'])
         dim_host_country = dim_host_country.sort_values('CountryCode').reset_index(drop=True)
-        
-        # Add surrogate key
-        dim_host_country['CountryKey'] = range(1, len(dim_host_country) + 1)
+          # Add surrogate key
+        dim_host_country['HostCountryKey'] = range(1, len(dim_host_country) + 1)
         
         context.log.info(f"Created host country dimension with {len(dim_host_country)} records")
         return dim_host_country
@@ -815,20 +821,29 @@ def create_dim_member(
         pd.DataFrame: Member dimension data
     """
     context.log.info("Creating member dimension")
-    
+
+    context.log.info(F"Head of enhanced members data:\n{enhanced_members.head()}")
     try:
-        # Create member dimension with key attributes
-        dim_member = enhanced_members[['FNAME', 'LNAME', 'MYEAR', 'MSEX', 'MAGE', 'CITIZEN', 'CALCAGE']].copy()
+        # Create member dimension with key attributes including MEMBID for unique identification
+        required_columns = ['EXPID', 'MEMBID', 'FNAME', 'LNAME', 'MYEAR', 'SEX', 'AGE', 'CITIZEN', 'CALCAGE']
+        available_columns = [col for col in required_columns if col in enhanced_members.columns]
+
+        context.log.info(f"Available columns for member dimension: {available_columns}")
+        
+        dim_member = enhanced_members[available_columns].copy()
         
         # Add full name
         dim_member['FullName'] = (dim_member['FNAME'].fillna('') + ' ' + 
                                  dim_member['LNAME'].fillna('')).str.strip()
         
         # Clean and standardize data
-        dim_member['Gender'] = dim_member['MSEX'].map({'M': 'Male', 'F': 'Female'}).fillna('Unknown')
+        dim_member['Gender'] = dim_member['SEX'].map({'M': 'Male', 'F': 'Female'}).fillna('Unknown')
         dim_member['CitizenshipCountry'] = dim_member['CITIZEN'].fillna('Unknown')
         dim_member['Age'] = dim_member['CALCAGE'].fillna(-1).astype(int)
         dim_member['BirthYear'] = dim_member['MYEAR'].fillna(-1).astype(int)
+        
+        # Keep the original member ID for bridge table linkage
+        dim_member['MemberID'] = dim_member['MEMBID'].fillna('Unknown')
         
         # Add age groups
         def get_age_group(age):
@@ -852,19 +867,19 @@ def create_dim_member(
         # Add metadata
         dim_member['CreatedDate'] = datetime.now()
         dim_member['ModifiedDate'] = datetime.now()
-        
-        # Select final columns
-        dim_member = dim_member[['FullName', 'FNAME', 'LNAME', 'Gender', 'Age', 'AgeGroup', 
+        dim_member = dim_member[['EXPID', 'MemberID', 'FullName', 'FNAME', 'LNAME', 'Gender', 'Age', 'AgeGroup', 
                                 'BirthYear', 'CitizenshipCountry', 'CreatedDate', 'ModifiedDate']]
         
         # Remove duplicates based on key attributes
-        dim_member = dim_member.drop_duplicates(subset=['FullName', 'CitizenshipCountry', 'BirthYear'])
+        dim_member = dim_member.drop_duplicates(subset=['MemberID'], keep='first')
         dim_member = dim_member.reset_index(drop=True)
         
         # Add surrogate key
         dim_member['MemberKey'] = range(1, len(dim_member) + 1)
         
         context.log.info(f"Created member dimension with {len(dim_member)} records")
+
+        context.log.info(f"Member dimension head:\n{dim_member.head()}")
         return dim_member
         
     except Exception as e:

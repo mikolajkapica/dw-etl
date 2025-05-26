@@ -125,8 +125,7 @@ def clean_world_bank_data(
 ) -> pd.DataFrame:
     """
     Clean and standardize World Bank data.
-    """
-    
+"""
     if wb_data.empty:
         context.log.warning("No World Bank data to clean")
         return pd.DataFrame()
@@ -137,18 +136,28 @@ def clean_world_bank_data(
     try:
         cleaned_df = wb_data.copy()
         
+        # Standardize column names to match expected format
+        column_mapping = {
+            'country_code': 'Country Code',
+            'country_name': 'Country Name', 
+            'indicator_code': 'Series Code',
+            'indicator_name': 'Series Name',
+            'year': 'Year',
+            'value': 'Value'
+        }
+        cleaned_df = cleaned_df.rename(columns=column_mapping)
+        
         # Remove records with null values
         initial_count = len(cleaned_df)
-        cleaned_df = cleaned_df.dropna(subset=['value'])
+        cleaned_df = cleaned_df.dropna(subset=['Value'])
         context.log.info(f"Removed {initial_count - len(cleaned_df)} records with null values")
-        
-        # Standardize country names using ETL config mappings
+          # Standardize country names using ETL config mappings
         if hasattr(etl_config, 'country_name_mappings'):
-            cleaned_df['country_name_standardized'] = cleaned_df['country_name'].map(
+            cleaned_df['country_name_standardized'] = cleaned_df['Country Name'].map(
                 etl_config.country_name_mappings
-            ).fillna(cleaned_df['country_name'])
+            ).fillna(cleaned_df['Country Name'])
         else:
-            cleaned_df['country_name_standardized'] = cleaned_df['country_name']
+            cleaned_df['country_name_standardized'] = cleaned_df['Country Name']
         
         # Filter for reasonable data ranges
         cleaned_df = _apply_data_validation(cleaned_df, context)
@@ -168,7 +177,7 @@ def clean_world_bank_data(
 @op(
     ins={"cleaned_wb_data": In(pd.DataFrame)},
     out=Out(pd.DataFrame, description="Country indicators dimension"),
-        config_schema=world_bank_config_schema,
+    config_schema=world_bank_config_schema,
     retry_policy=RetryPolicy(max_retries=2, delay=2),
     description="Create country indicators dimension table"
 )
@@ -182,19 +191,20 @@ def create_dim_country_indicators(
     This dimension contains economic and social indicators for countries
     organized by country and year to support trend analysis.
     """
-    
-    if cleaned_wb_data.empty:
-        context.log.warning("No cleaned World Bank data available")
-        return pd.DataFrame()
-    
     context.log.info(f"Creating country indicators dimension from {len(cleaned_wb_data)} records")
-    
+
+    # Debug: show cleaned_wb_data structure
+    context.log.info(f"Cleaned WB data columns: {list(cleaned_wb_data.columns)}")
+    if not cleaned_wb_data.empty:
+        context.log.info(f"Sample cleaned data:\n{cleaned_wb_data.head()}")
+
     try:
         # Pivot the data to have indicators as columns
+        # Use the correct column names from the cleaned_wb_data
         pivot_df = cleaned_wb_data.pivot_table(
-            index=['country_code', 'country_name_standardized', 'year'],
-            columns='indicator_code',
-            values='value',
+            index=['Country Code', 'Country Name', 'Year'],
+            columns='Series Code',
+            values='Value',
             aggfunc='mean'  # In case of duplicates
         ).reset_index()
         
@@ -214,20 +224,19 @@ def create_dim_country_indicators(
         
         # Create dimension key
         pivot_df['INDICATOR_KEY'] = range(1, len(pivot_df) + 1)
-        
-        # Rename standard columns
+          # Rename standard columns
         pivot_df = pivot_df.rename(columns={
-            'country_code': 'COUNTRY_CODE',
-            'country_name_standardized': 'COUNTRY_NAME',
-            'year': 'YEAR'
+            'Country Code': 'COUNTRY_CODE',
+            'Country Name': 'COUNTRY_NAME',
+            'Year': 'YEAR'
         })
-          # Calculate derived indicators (removed GDP_TOTAL calculation since no population data)
+        # Calculate derived indicators (removed GDP_TOTAL calculation since no population data)
         # Could add other derived metrics here if needed
         
         # Add metadata columns
         pivot_df['LAST_UPDATED'] = datetime.now()
         pivot_df['DATA_SOURCE'] = 'World Bank API'
-          # Select final columns
+        # Select final columns
         dimension_columns = [
             'INDICATOR_KEY', 'COUNTRY_CODE', 'COUNTRY_NAME', 'YEAR',
             'GDP_PER_CAPITA_USD', 'HUMAN_CAPITAL_INDEX', 'INTERNET_USERS_PERCENT',

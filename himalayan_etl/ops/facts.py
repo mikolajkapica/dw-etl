@@ -1,6 +1,6 @@
 """
 Fact table operations for the Himalayan Expeditions ETL process.
-Handles FACT_Expeditions and BRIDGE_ExpeditionMembers table processing.
+Handles FACT_Expeditions table processing with member-centric records.
 """
 
 import logging
@@ -51,203 +51,122 @@ def prepare_fact_expeditions(
     dim_host_country: pd.DataFrame,
     dim_member: pd.DataFrame
 ) -> pd.DataFrame:
-    """
-    Transform and join data to create the fact table.
+
+    # print sample of cleaned expeditions
+    context.log.info(f"cleaned_expeditions: {list(cleaned_expeditions.columns)}")
+    context.log.info(f"cleaned_members: {list(cleaned_members.columns)}")
+    context.log.info(f"dim_date: {list(dim_date.columns)}")
+    context.log.info(f"dim_nationality: {list(dim_nationality.columns)}")
+    context.log.info(f"dim_peak: {list(dim_peak.columns)}")
+    context.log.info(f"dim_route: {list(dim_route.columns)}")
+    context.log.info(f"dim_expedition_status: {list(dim_expedition_status.columns)}")
+    context.log.info(f"dim_host_country: {list(dim_host_country.columns)}")
+    context.log.info(f"dim_member: {list(dim_member.columns)}")
+
+    # cleaned_expeditions: ['EXPID', 'PEAKID', 'YEAR', 'SEASON', 'HOST', 'ROUTE1', 'ROUTE2', 'ROUTE3', 'ROUTE4', 'NATION', 'LEADERS', 'SPONSOR', 'SUCCESS1', 'SUCCESS2', 'SUCCESS3', 'SUCCESS4', 'ASCENT1', 'ASCENT2', 'ASCENT3', 'ASCENT4', 'CLAIMED', 'DISPUTED', 'COUNTRIES', 'APPROACH', 'BCDATE', 'SMTDATE', 'SMTTIME', 'SMTDAYS', 'TOTDAYS', 'TERMDATE', 'TERMREASON', 'TERMNOTE', 'HIGHPOINT', 'TRAVERSE', 'SKI', 'PARAPENTE', 'CAMPS', 'ROPE', 'TOTMEMBERS', 'SMTMEMBERS', 'MDEATHS', 'TOTHIRED', 'SMTHIRED', 'HDEATHS', 'NOHIRED', 'O2USED', 'O2NONE', 'O2CLIMB', 'O2DESCENT', 'O2SLEEP', 'O2MEDICAL', 'O2TAKEN', 'O2UNKWN', 'OTHERSMTS', 'CAMPSITES', 'ROUTEMEMO', 'ACCIDENTS', 'ACHIEVMENT', 'AGENCY', 'COMRTE', 'STDRTE', 'PRIMRTE', 'PRIMMEM', 'PRIMREF', 'PRIMID', 'CHKSUM', 'LEADERS_LIST', 'LEADER_COUNT', 'IS_SUCCESS', 'TOTAL_DEATHS']
+    # cleaned_members: ['EXPID', 'MEMBID', 'PEAKID', 'MYEAR', 'MSEASON', 'FNAME', 'LNAME', 'SEX', 'AGE', 'BIRTHDATE', 'YOB', 'CALCAGE', 'CITIZEN', 'STATUS', 'RESIDENCE', 'OCCUPATION', 'LEADER', 'DEPUTY', 'BCONLY', 'NOTTOBC', 'SUPPORT', 'DISABLED', 'HIRED', 'SHERPA', 'TIBETAN', 'MSUCCESS', 'MCLAIMED', 'MDISPUTED', 'MSOLO', 'MTRAVERSE', 'MSKI', 'MPARAPENTE', 'MSPEED', 'MHIGHPT', 'MPERHIGHPT', 'MSMTDATE1', 'MSMTDATE2', 'MSMTDATE3', 'MSMTTIME1', 'MSMTTIME2', 'MSMTTIME3', 'MROUTE1', 'MROUTE2', 'MROUTE3', 'MASCENT1', 'MASCENT2', 'MASCENT3', 'MO2USED', 'MO2NONE', 'MO2CLIMB', 'MO2DESCENT', 'MO2SLEEP', 'MO2MEDICAL', 'MO2NOTE', 'DEATH', 'DEATHDATE', 'DEATHTIME', 'DEATHTYPE', 'DEATHHGTM', 'DEATHCLASS', 'AMS', 'WEATHER', 'INJURY', 'INJURYDATE', 'INJURYTIME', 'INJURYTYPE', 'INJURYHGTM', 'DEATHNOTE', 'MEMBERMEMO', 'NECROLOGY', 'MSMTBID', 'MSMTTERM', 'HCN', 'MCHKSUM', 'MSMTNOTE1', 'MSMTNOTE2', 'MSMTNOTE3', 'DEATHRTE', 'FULL_NAME', 'CITIZEN_CODE', 'GENDER', 'MEMBER_ID']
+    # dim_date: ['Date', 'Year', 'Quarter', 'Month', 'MonthName', 'DayOfYear', 'DayOfMonth', 'DayOfWeek', 'DayName', 'IsWeekend', 'Season', 'CreatedDate', 'ModifiedDate']
+    # dim_nationality: ['CountryCode', 'CountryName', 'Region', 'SubRegion', 'IsActive', 'CreatedDate', 'ModifiedDate']
+    # dim_peak: ['PeakID', 'PeakName', 'HeightMeters', 'ClimbingStatus', 'HostCountryCode', 'Coordinates', 'IsActive', 'CreatedDate', 'ModifiedDate']
+    # dim_route: ['Route1', 'Route2', 'CombinedRoute', 'RouteType', 'DifficultyLevel', 'IsActive', 'CreatedDate', 'ModifiedDate']
+    # dim_expedition_status: ['TerminationReason', 'StatusCategory', 'IsSuccess', 'StatusDescription', 'IsActive', 'CreatedDate', 'ModifiedDate']
+    # dim_host_country: ['CountryCode', 'CountryName', 'Region', 'Subregion', 'CreatedDate', 'ModifiedDate', 'CountryKey']
+    # dim_member: ['EXPID', 'MemberID', 'FullName', 'FNAME', 'LNAME', 'Gender', 'Age', 'AgeGroup', 'BirthYear', 'CitizenshipCountry', 'CreatedDate', 'ModifiedDate', 'MemberKey']    # And i have to get
+
+    # ExpeditionKey ExpeditionID MemberKey DateKey PeakKey RouteKey StatusKey INT NOT HostCountryKey LeaderNationalityKey ExpeditionYear Season TotalMembers TotalDays Basecamp_Date Highpoint_Meters ExpeditionName Agency Sponsor IsSuccess SummitAttempts SummitSuccesses Deaths Injuries TotalCost MemberRole IsLeader IsDeputyLeader ReachedSummit Death Injury OxygenUsed AgeAtExpedition CreatedDate ModifiedDate 
+
+    context.log.info("Head: \n" + str(dim_member.head()))    # Merge with members
+    fact_df = cleaned_expeditions.merge(
+        dim_member,
+        left_on='EXPID',
+        right_on='EXPID',
+        how='right',
+    )
     
-    This op performs the core transformation to create the fact table by:
-    1. Joining expeditions with all dimension tables
-    2. Creating derived metrics and calculations
-    3. Handling missing dimension keys
-    4. Validating fact table integrity
-    """
+    fact_df = fact_df.merge(
+        cleaned_members,
+        left_on='EXPID',
+        right_on='EXPID',
+        how='left',
+    )
     
-    context.log.info(f"Starting fact table preparation with {len(cleaned_expeditions)} expeditions")
+    # print out types of fact_df
+    context.log.info(f"Fact DataFrame types:\n{fact_df.dtypes}")
     
-    try:
-        # Start with cleaned expeditions
-        fact_df = cleaned_expeditions.copy()
-        
-        # Create date key for joining
-        fact_df['DATE_KEY'] = fact_df['YEAR'].astype(str) + \
-                             fact_df['SEASON_CODE'].astype(str).str.zfill(2) + '01'
-        fact_df['DATE_KEY'] = pd.to_numeric(fact_df['DATE_KEY'], errors='coerce')
-        
-        # Join with date dimension
-        fact_df = fact_df.merge(
-            dim_date[['DATE_KEY', 'DATE_ID']],
-            on='DATE_KEY',
-            how='left'
-        )
-        
-        # Join with peak dimension
-        fact_df = fact_df.merge(
-            dim_peak[['PEAK_ID', 'PEAK_NAME']],
-            left_on='PEAK_ID',
-            right_on='PEAK_NAME',
-            how='left',
-            suffixes=('', '_DIM')
-        )
-        fact_df['PEAK_KEY'] = fact_df['PEAK_ID_DIM']
-        
-        # Join with host country dimension
-        fact_df = fact_df.merge(
-            dim_host_country[['COUNTRY_KEY', 'COUNTRY_NAME']],
-            left_on='HOST_COUNTRY',
-            right_on='COUNTRY_NAME',
-            how='left'
-        )
-        
-        # Join with expedition status dimension
-        fact_df = fact_df.merge(
-            dim_expedition_status[['STATUS_KEY', 'TERMINATION_REASON_CODE']],
-            left_on='TERMINATION_REASON_CODE',
-            right_on='TERMINATION_REASON_CODE',
-            how='left'
-        )
-        
-        # Join with route dimension
-        fact_df = fact_df.merge(
-            dim_route[['ROUTE_KEY', 'PEAK_ID', 'ROUTE_NAME']],
-            left_on=['PEAK_ID', 'ROUTE1'],
-            right_on=['PEAK_ID', 'ROUTE_NAME'],
-            how='left'
-        )
-        
-        # Calculate expedition-level aggregates from members
-        member_aggs = cleaned_members.groupby('EXPID').agg({
-            'MEMBER_ID': 'count',
-            'DEATH': 'sum',
-            'SUCCESS': 'sum',
-            'INJURY': 'sum',
-            'AGE': ['mean', 'min', 'max']
-        }).round(2)
-        
-        # Flatten column names
-        member_aggs.columns = [
-            'TOTAL_MEMBERS', 'TOTAL_DEATHS', 'TOTAL_SUCCESS', 
-            'TOTAL_INJURIES', 'AVG_MEMBER_AGE', 'MIN_MEMBER_AGE', 'MAX_MEMBER_AGE'
-        ]
-        member_aggs = member_aggs.reset_index()
-        
-        # Join member aggregates
-        fact_df = fact_df.merge(member_aggs, on='EXPID', how='left')
-        
-        # Fill missing aggregates with 0
-        agg_columns = ['TOTAL_MEMBERS', 'TOTAL_DEATHS', 'TOTAL_SUCCESS', 
-                      'TOTAL_INJURIES', 'AVG_MEMBER_AGE', 'MIN_MEMBER_AGE', 'MAX_MEMBER_AGE']
-        for col in agg_columns:
-            fact_df[col] = fact_df[col].fillna(0)
-        
-        # Calculate derived metrics
-        fact_df['SUCCESS_RATE'] = (fact_df['TOTAL_SUCCESS'] / fact_df['TOTAL_MEMBERS'].replace(0, 1)).round(4)
-        fact_df['DEATH_RATE'] = (fact_df['TOTAL_DEATHS'] / fact_df['TOTAL_MEMBERS'].replace(0, 1)).round(4)
-        fact_df['INJURY_RATE'] = (fact_df['TOTAL_INJURIES'] / fact_df['TOTAL_MEMBERS'].replace(0, 1)).round(4)
-        
-        # Duration calculations
-        fact_df['EXPEDITION_DURATION_DAYS'] = (
-            pd.to_datetime(fact_df['TERM_DATE'], errors='coerce') - 
-            pd.to_datetime(fact_df['BASE_DATE'], errors='coerce')
-        ).dt.days
-        
-        # Handle missing dimension keys with default values
-        default_keys = {
-            'DATE_ID': -1,
-            'PEAK_KEY': -1,
-            'COUNTRY_KEY': -1,
-            'STATUS_KEY': -1,
-            'ROUTE_KEY': -1
-        }
-        
-        for key, default_value in default_keys.items():
-            if key in fact_df.columns:
-                fact_df[key] = fact_df[key].fillna(default_value)
-        
-        # Select final fact table columns
-        fact_columns = [
-            'EXPID', 'DATE_ID', 'PEAK_KEY', 'COUNTRY_KEY', 'STATUS_KEY', 'ROUTE_KEY',
-            'YEAR', 'SEASON_CODE', 'TOTAL_MEMBERS', 'TOTAL_DEATHS', 'TOTAL_SUCCESS',
-            'TOTAL_INJURIES', 'AVG_MEMBER_AGE', 'MIN_MEMBER_AGE', 'MAX_MEMBER_AGE',
-            'SUCCESS_RATE', 'DEATH_RATE', 'INJURY_RATE', 'EXPEDITION_DURATION_DAYS',
-            'CLAIMED_HEIGHT', 'SMTDATE_ACCURACY', 'BASECAMP_HEIGHT'
-        ]
-        
-        # Keep only columns that exist
-        available_columns = [col for col in fact_columns if col in fact_df.columns]
-        fact_df = fact_df[available_columns]
-          # Data validation if enabled
-        if context.op_config["enable_validation"]:
-            fact_df = _validate_fact_data(fact_df, context.op_config, context.log)
-        
-        context.log.info(f"Prepared fact table with {len(fact_df)} records")
-        
-        return fact_df
-        
-    except Exception as e:
-        context.log.error(f"Error preparing fact table: {str(e)}")
-        raise
+    fact_expeditions = pd.DataFrame({
+        # ExpeditionKey is auto-generated IDENTITY column - do not include
+        'ExpeditionID': fact_df['EXPID'],
+        'MemberKey': fact_df['MemberID'].fillna(0).astype(int),
+        'DateKey': 0,  # Default value - would need lookup to DIM_Date
+        'PeakKey': pd.to_numeric(fact_df['PEAKID_x'], errors='coerce').fillna(0).astype(int),
+        'RouteKey': 0,  # Default value - would need lookup to DIM_Route
+        'StatusKey': 0,  # Default value - would need lookup to DIM_ExpeditionStatus
+        'HostCountryKey': 0,  # Default value - would need lookup to DIM_HostCountry
+        'LeaderNationalityKey': 0,  # Default value - would need lookup to DIM_Nationality
+        'ExpeditionYear': fact_df['YEAR'],
+        'Season': fact_df['SEASON'],
+        'TotalMembers': fact_df['TOTMEMBERS'].fillna(0),
+        'TotalDays': fact_df['TOTDAYS'].fillna(0),
+        'Basecamp_Date': fact_df['BCDATE'],
+        'Highpoint_Meters': fact_df['HIGHPOINT'].fillna(0),
+        'ExpeditionName': fact_df['EXPID'].astype(str),  # Using expedition ID as name
+        'Agency': fact_df['AGENCY'],
+        'Sponsor': fact_df['SPONSOR'],
+        'IsSuccess': fact_df['IS_SUCCESS'].fillna(0).astype(int),
+        'SummitAttempts': fact_df['TOTMEMBERS'].fillna(0),  # Total members as attempts
+        'SummitSuccesses': fact_df['SMTMEMBERS'].fillna(0),
+        'Deaths': fact_df['MDEATHS'].fillna(0) + fact_df['HDEATHS'].fillna(0),  # Member + hired deaths
+        'Injuries': 0,  # Would need to calculate from injury data
+        'TotalCost': None,  # Not available in source data
+        'MemberRole': fact_df['STATUS'],
+        'IsLeader': fact_df['LEADER'].fillna(0).astype(int),
+        'IsDeputyLeader': fact_df['DEPUTY'].fillna(0).astype(int),
+        'ReachedSummit': fact_df['MSUCCESS'].fillna(0).astype(int),
+        'Death': fact_df['DEATH'].fillna(0).astype(int),
+        'Injury': fact_df['INJURY'].fillna(0).astype(int),
+        'OxygenUsed': fact_df['MO2USED'].fillna(0).astype(int),
+        'AgeAtExpedition': fact_df['CALCAGE'].fillna(0),
+        'CreatedDate': pd.Timestamp.now(),
+        'ModifiedDate': pd.Timestamp.now()
+    })
+
+    # Clean and convert data types to prevent encoding and SQL errors
+    fact_expeditions = fact_expeditions.copy()
+    
+    # Convert string columns to handle None/NaN values and encoding
+    string_columns = ['ExpeditionID', 'Season', 'ExpeditionName', 'Agency', 'Sponsor', 'MemberRole']
+    for col in string_columns:
+        if col in fact_expeditions.columns:
+            fact_expeditions[col] = fact_expeditions[col].astype(str).replace('nan', None)
+    
+    # Ensure integer columns are properly converted
+    int_columns = ['MemberKey', 'DateKey', 'PeakKey', 'RouteKey', 'StatusKey', 'HostCountryKey', 
+                   'LeaderNationalityKey', 'ExpeditionYear', 'TotalMembers', 'TotalDays', 
+                   'Highpoint_Meters', 'IsSuccess', 'SummitAttempts', 'SummitSuccesses', 
+                   'Deaths', 'Injuries', 'IsLeader', 'IsDeputyLeader', 'ReachedSummit', 
+                   'Death', 'Injury', 'OxygenUsed', 'AgeAtExpedition']
+    for col in int_columns:
+        if col in fact_expeditions.columns:
+            fact_expeditions[col] = pd.to_numeric(fact_expeditions[col], errors='coerce').fillna(0).astype(int)
+
+    # show sample of fact_expeditions
+    context.log.info(f"Sample of prepared fact expeditions data:\n{fact_expeditions.head()}")
+
+    return fact_expeditions
 
 
 @op(
     ins={
-        "cleaned_expeditions": In(pd.DataFrame),
-        "cleaned_members": In(pd.DataFrame),
-        "dim_member": In(pd.DataFrame)
+        "fact_data": In(pd.DataFrame),
+        "dim_date_loaded": In(Dict[str, Any]),
+        "dim_nationality_loaded": In(Dict[str, Any]),
+        "dim_peak_loaded": In(Dict[str, Any]),
+        "dim_route_loaded": In(Dict[str, Any]),
+        "dim_expedition_status_loaded": In(Dict[str, Any]),
+        "dim_host_country_loaded": In(Dict[str, Any]),
+        "dim_member_loaded": In(Dict[str, Any]),
+        "dim_country_indicators_loaded": In(Dict[str, Any]),
     },
-    out=Out(pd.DataFrame, description="Bridge table data"),
-    config_schema=fact_config_schema,
-    retry_policy=RetryPolicy(max_retries=3, delay=2),
-    description="Create bridge table for expedition-member relationships"
-)
-def prepare_bridge_expedition_members(
-    context,
-    cleaned_expeditions: pd.DataFrame,
-    cleaned_members: pd.DataFrame,
-    dim_member: pd.DataFrame
-) -> pd.DataFrame:
-    """
-    Create the bridge table for many-to-many expedition-member relationships.
-    """
-    
-    context.log.info(f"Creating bridge table for {len(cleaned_members)} member records")
-    
-    try:
-        # Start with cleaned members
-        bridge_df = cleaned_members.copy()
-        
-        # Join with member dimension to get member keys
-        bridge_df = bridge_df.merge(
-            dim_member[['MEMBER_KEY', 'MEMBER_ID']],
-            on='MEMBER_ID',
-            how='left'
-        )
-        
-        # Select bridge table columns
-        bridge_columns = [
-            'EXPID', 'MEMBER_KEY', 'MEMBER_ID', 'SUCCESS', 'DEATH', 'INJURY',
-            'HIRED', 'LEADER', 'OXYGEN_USED', 'CLIMBING_STATUS'
-        ]
-        
-        # Keep only columns that exist
-        available_columns = [col for col in bridge_columns if col in bridge_df.columns]
-        bridge_df = bridge_df[available_columns]
-        
-        # Handle missing member keys
-        bridge_df['MEMBER_KEY'] = bridge_df['MEMBER_KEY'].fillna(-1)
-        
-        # Remove duplicates
-        bridge_df = bridge_df.drop_duplicates(subset=['EXPID', 'MEMBER_KEY'])
-        
-        context.log.info(f"Created bridge table with {len(bridge_df)} relationships")
-        
-        return bridge_df
-        
-    except Exception as e:
-        context.log.error(f"Error creating bridge table: {str(e)}")
-        raise
-
-
-@op(
-    ins={"fact_data": In(pd.DataFrame)},
     out=Out(Dict[str, Any], description="Load results"),
     config_schema=fact_config_schema,
     retry_policy=RetryPolicy(max_retries=3, delay=2),
@@ -256,20 +175,39 @@ def prepare_bridge_expedition_members(
 )
 def load_fact_expeditions(
     context,
-    fact_data: pd.DataFrame
+    fact_data: pd.DataFrame,
+    dim_date_loaded: Dict[str, Any],
+    dim_nationality_loaded: Dict[str, Any],
+    dim_peak_loaded: Dict[str, Any],
+    dim_route_loaded: Dict[str, Any],
+    dim_expedition_status_loaded: Dict[str, Any],   
+    dim_host_country_loaded: Dict[str, Any],
+    dim_member_loaded: Dict[str, Any],
+    dim_country_indicators_loaded: Dict[str, Any],
 ) -> Dict[str, Any]:
     """
     Load the prepared fact table data into the database.
+    This operation depends on all dimension tables being loaded first.
     """
+    
+    # Log that all dependencies are satisfied
+    context.log.info("All dimension tables loaded successfully:")
+    context.log.info(f"  - Date: {dim_date_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Nationality: {dim_nationality_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Peak: {dim_peak_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Route: {dim_route_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Expedition Status: {dim_expedition_status_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Host Country: {dim_host_country_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Member: {dim_member_loaded.get('records_loaded', 0)} records")
+    context.log.info(f"  - Country Indicators: {dim_country_indicators_loaded.get('records_loaded', 0)} records")
     
     context.log.info(f"Loading {len(fact_data)} fact records to database")
     
     try:
         # Load data using bulk insert
-        load_result = context.resources.db.bulk_insert_dataframe(
-            dataframe=fact_data,
+        load_result = context.resources.db.bulk_insert(
+            df=fact_data,
             table_name='FACT_Expeditions',
-            batch_size=context.op_config["batch_size"]
         )
         
         context.log.info(f"Successfully loaded fact table: {load_result}")
@@ -286,46 +224,6 @@ def load_fact_expeditions(
         raise
 
 
-@op(
-    ins={"bridge_data": In(pd.DataFrame)},
-    out=Out(Dict[str, Any], description="Load results"),
-    config_schema=fact_config_schema,
-    retry_policy=RetryPolicy(max_retries=3, delay=2),
-    description="Load bridge table data into the database",
-    required_resource_keys={"db"}
-)
-def load_bridge_expedition_members(
-    context,
-    bridge_data: pd.DataFrame
-) -> Dict[str, Any]:
-    """
-    Load the bridge table data into the database.
-    """
-    
-    context.log.info(f"Loading {len(bridge_data)} bridge records to database")
-    
-    try:
-        # Load data using bulk insert
-        load_result = context.resources.db.bulk_insert_dataframe(
-            dataframe=bridge_data,
-            table_name='BRIDGE_ExpeditionMembers',
-            batch_size=context.op_config["batch_size"]
-        )
-        
-        context.log.info(f"Successfully loaded bridge table: {load_result}")
-        
-        return {
-            'table_name': 'BRIDGE_ExpeditionMembers',
-            'records_loaded': len(bridge_data),
-            'load_timestamp': pd.Timestamp.now().isoformat(),
-            'status': 'success'
-        }
-        
-    except Exception as e:
-        context.log.error(f"Error loading bridge table: {str(e)}")
-        raise
-
-
 def _validate_fact_data(
     fact_df: pd.DataFrame, 
     op_config: Dict[str, Any], 
@@ -338,10 +236,10 @@ def _validate_fact_data(
     initial_count = len(fact_df)
     
     # Remove records with invalid years
-    if 'YEAR' in fact_df.columns:
+    if 'ExpeditionYear' in fact_df.columns:
         valid_year_mask = (
-            (fact_df['YEAR'] >= op_config["min_year"]) &
-            (fact_df['YEAR'] <= op_config["max_year"])
+            (fact_df['ExpeditionYear'] >= op_config["min_year"]) &
+            (fact_df['ExpeditionYear'] <= op_config["max_year"])
         )
         fact_df = fact_df[valid_year_mask]
         
@@ -349,17 +247,17 @@ def _validate_fact_data(
         if removed_count > 0:
             logger.warning(f"Removed {removed_count} records with invalid years")
     
-    # Validate rates are between 0 and 1
-    rate_columns = ['SUCCESS_RATE', 'DEATH_RATE', 'INJURY_RATE']
-    for col in rate_columns:
-        if col in fact_df.columns:
-            fact_df[col] = fact_df[col].clip(0, 1)
-    
     # Validate member counts are non-negative
-    count_columns = ['TOTAL_MEMBERS', 'TOTAL_DEATHS', 'TOTAL_SUCCESS', 'TOTAL_INJURIES']
+    count_columns = ['TotalMembers', 'Deaths', 'SummitSuccesses', 'Injuries']
     for col in count_columns:
         if col in fact_df.columns:
             fact_df[col] = fact_df[col].clip(lower=0)
+    
+    # Validate boolean fields are 0 or 1
+    boolean_columns = ['IsSuccess', 'IsLeader', 'IsDeputyLeader', 'ReachedSummit', 'Death', 'Injury', 'OxygenUsed']
+    for col in boolean_columns:
+        if col in fact_df.columns:
+            fact_df[col] = fact_df[col].clip(0, 1)
     
     logger.info(f"Data validation completed. Final record count: {len(fact_df)}")
     

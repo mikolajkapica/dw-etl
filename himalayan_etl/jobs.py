@@ -33,9 +33,7 @@ from himalayan_etl.ops.dimensions import (
 
 from himalayan_etl.ops.facts import (
     prepare_fact_expeditions,
-    prepare_bridge_expedition_members,
     load_fact_expeditions,
-    load_bridge_expedition_members,
 )
 
 # Create configured dimension loading ops for each table
@@ -109,17 +107,17 @@ def himalayan_etl_full_load():
     dim_member = create_dim_member(cleaned_members)
     
     # Create World Bank indicators dimension
-    dim_country_indicators = create_dim_country_indicators(cleaned_world_bank)
-
-    load_dim_date(dim_date)
-    load_dim_nationality(dim_nationality)
-    load_dim_peak(dim_peak) 
-    load_dim_route(dim_route)
-    load_dim_expedition_status(dim_expedition_status)
-    load_dim_host_country(dim_host_country)
-    load_dim_member(dim_member)
-    load_dim_country_indicators(dim_country_indicators)
+    dim_country_indicators = create_dim_country_indicators(cleaned_world_bank)    # Load all dimensions first
+    dim_date_loaded = load_dim_date(dim_date)
+    dim_nationality_loaded = load_dim_nationality(dim_nationality)
+    dim_peak_loaded = load_dim_peak(dim_peak) 
+    dim_route_loaded = load_dim_route(dim_route)
+    dim_expedition_status_loaded = load_dim_expedition_status(dim_expedition_status)
+    dim_host_country_loaded = load_dim_host_country(dim_host_country)
+    dim_member_loaded = load_dim_member(dim_member)
+    dim_country_indicators_loaded = load_dim_country_indicators(dim_country_indicators)
     
+    # Prepare fact table (depends on dimension data, not loading results)
     fact_expeditions = prepare_fact_expeditions(
         cleaned_expeditions,
         cleaned_members,
@@ -132,11 +130,15 @@ def himalayan_etl_full_load():
         dim_member
     )
     
-    bridge_expedition_members = prepare_bridge_expedition_members(
-        cleaned_expeditions,
-        cleaned_members,
-        dim_member
+    # Load facts only after all dimensions are loaded
+    load_fact_expeditions(
+        fact_expeditions,
+        dim_date_loaded,
+        dim_nationality_loaded,
+        dim_peak_loaded,
+        dim_route_loaded,
+        dim_expedition_status_loaded,
+        dim_host_country_loaded,
+        dim_member_loaded,
+        dim_country_indicators_loaded
     )
-    
-    load_fact_expeditions(fact_expeditions)
-    load_bridge_expedition_members(bridge_expedition_members)

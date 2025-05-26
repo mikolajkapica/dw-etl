@@ -64,19 +64,36 @@ class DatabaseResource:
         except Exception as e:
             logging.error(f"Database query failed: {e}")
             raise
-    
-    def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
+      def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
         """Bulk insert DataFrame into database table."""
+        if df.empty:
+            logging.warning(f"No data to insert into {table_name}")
+            return 0
+            
+        # Limit to 100 rows for testing
+        original_count = len(df)
+        df = df.head(100) if len(df) > 100 else df
+        if original_count > 100:
+            logging.info(f"Limited data from {original_count} to {len(df)} rows for testing")
+
+        logging.info(f"Inserting {len(df)} rows into {table_name}")
+        logging.info(f"Columns: {list(df.columns)}")
+
         try:
+            # Clean string columns to handle encoding issues
+            for col in df.columns:
+                if df[col].dtype == 'object':
+                    df[col] = df[col].astype(str).replace('nan', None)
+            
             rows_affected = df.to_sql(
                 table_name, 
                 self.get_engine(), 
                 if_exists=if_exists, 
                 index=False,
                 method='multi',
-                chunksize=1000
+                chunksize=100  # Smaller chunks to avoid issues
             )
-            logging.info(f"Inserted {len(df)} rows into {table_name}")
+            logging.info(f"Successfully inserted {len(df)} rows into {table_name}")
             return len(df)
         except Exception as e:
             logging.error(f"Bulk insert failed for {table_name}: {e}")
@@ -131,19 +148,20 @@ class DatabaseResource:
                             row_df = pd.DataFrame([row])
                             row_df.to_sql(table_name, conn, if_exists='append', index=False)
                             rows_affected += 1
-                        except:
-                            # If insert fails, try update
+                        except:                            # If insert fails, try update
                             try:
-                                # Build update statement
-                                set_clause = ", ".join([f"{col} = ?" for col in update_columns])
-                                where_clause = " AND ".join([f"{col} = ?" for col in key_columns])
+                                # Build update statement with named parameters
+                                set_clause = ", ".join([f"{col} = :upd_{col}" for col in update_columns])
+                                where_clause = " AND ".join([f"{col} = :key_{col}" for col in key_columns])
                                 
                                 update_sql = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
                                 
-                                # Prepare parameters
-                                update_values = [row[col] for col in update_columns]
-                                key_values = [row[col] for col in key_columns]
-                                params = update_values + key_values
+                                # Prepare parameters as dictionary
+                                params = {}
+                                for col in update_columns:
+                                    params[f"upd_{col}"] = row[col]
+                                for col in key_columns:
+                                    params[f"key_{col}"] = row[col]
                                 
                                 result = conn.execute(text(update_sql), params)
                                 if result.rowcount > 0:

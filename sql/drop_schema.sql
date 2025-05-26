@@ -1,7 +1,6 @@
 USE HimalayanExpeditionsDW;
 GO
 
-DROP TABLE IF EXISTS BRIDGE_ExpeditionMembers;
 DROP TABLE IF EXISTS FACT_Expeditions;
 DROP TABLE IF EXISTS DIM_CountryIndicators;
 DROP TABLE IF EXISTS DIM_Member;
