@@ -64,18 +64,13 @@ class DatabaseResource:
         except Exception as e:
             logging.error(f"Database query failed: {e}")
             raise
-      def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
+
+    def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
         """Bulk insert DataFrame into database table."""
         if df.empty:
             logging.warning(f"No data to insert into {table_name}")
             return 0
             
-        # Limit to 100 rows for testing
-        original_count = len(df)
-        df = df.head(100) if len(df) > 100 else df
-        if original_count > 100:
-            logging.info(f"Limited data from {original_count} to {len(df)} rows for testing")
-
         logging.info(f"Inserting {len(df)} rows into {table_name}")
         logging.info(f"Columns: {list(df.columns)}")
 

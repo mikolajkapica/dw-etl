@@ -77,11 +77,6 @@ load_dim_country_indicators = load_dimension_table.configured(
     name="load_dim_country_indicators"
 )
 
-load_dim_country_indicators = load_dimension_table.configured(
-    {"table_name": "DIM_CountryIndicators", "key_columns": ["CountryCode", "IndicatorCode", "Year"]},
-    name="load_dim_country_indicators"
-)
-
 
 @job(
     name="himalayan_etl_full_load",
@@ -105,9 +100,9 @@ def himalayan_etl_full_load():
     dim_expedition_status = create_dim_expedition_status(cleaned_expeditions)
     dim_host_country = create_dim_host_country(cleaned_expeditions)
     dim_member = create_dim_member(cleaned_members)
+    dim_country_indicators = create_dim_country_indicators(cleaned_world_bank)    # Load all dimensions first
     
     # Create World Bank indicators dimension
-    dim_country_indicators = create_dim_country_indicators(cleaned_world_bank)    # Load all dimensions first
     dim_date_loaded = load_dim_date(dim_date)
     dim_nationality_loaded = load_dim_nationality(dim_nationality)
     dim_peak_loaded = load_dim_peak(dim_peak) 

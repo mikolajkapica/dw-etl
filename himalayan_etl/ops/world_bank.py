@@ -226,9 +226,9 @@ def create_dim_country_indicators(
         pivot_df['INDICATOR_KEY'] = range(1, len(pivot_df) + 1)
           # Rename standard columns
         pivot_df = pivot_df.rename(columns={
-            'Country Code': 'COUNTRY_CODE',
-            'Country Name': 'COUNTRY_NAME',
-            'Year': 'YEAR'
+            'Country Code': 'CountryCode',
+            'Country Name': 'CountryName',
+            'Year': 'Year'
         })
         # Calculate derived indicators (removed GDP_TOTAL calculation since no population data)
         # Could add other derived metrics here if needed
@@ -238,7 +238,7 @@ def create_dim_country_indicators(
         pivot_df['DATA_SOURCE'] = 'World Bank API'
         # Select final columns
         dimension_columns = [
-            'INDICATOR_KEY', 'COUNTRY_CODE', 'COUNTRY_NAME', 'YEAR',
+            'INDICATOR_KEY', 'CountryCode', 'CountryName', 'Year',
             'GDP_PER_CAPITA_USD', 'HUMAN_CAPITAL_INDEX', 'INTERNET_USERS_PERCENT',
             'PHYSICIANS_PER_1000', 'POLITICAL_STABILITY_INDEX',
             'LAST_UPDATED', 'DATA_SOURCE'
@@ -249,7 +249,7 @@ def create_dim_country_indicators(
         dim_indicators = pivot_df[available_columns]
         
         # Sort by country and year
-        dim_indicators = dim_indicators.sort_values(['COUNTRY_NAME', 'YEAR'])
+        dim_indicators = dim_indicators.sort_values(['CountryName', 'Year'])
         
         context.log.info(f"Created country indicators dimension with {len(dim_indicators)} records")
         

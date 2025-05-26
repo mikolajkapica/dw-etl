@@ -77,7 +77,7 @@ def create_dim_date(
         start_date = datetime(min_year, 1, 1)
         end_date = datetime(max_year, 12, 31)
         
-        date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+        date_range = pd.date_range(start=start_date, end=end_date, freq='Y')
           # Create date dimension DataFrame
         dim_date = pd.DataFrame({
             'Date': date_range,
@@ -92,12 +92,12 @@ def create_dim_date(
             'IsWeekend': (date_range.dayofweek >= 5).astype(int),
         })
           # Create DateKey and DATE_KEY columns for fact table joining
-        dim_date['DATE_KEY'] = (
-            dim_date['Year'].astype(str) + 
-            dim_date['Quarter'].astype(str).str.zfill(2) + 
-            '01'
-        ).astype(int)
-        dim_date['DateKey'] = range(1, len(dim_date) + 1)
+        # dim_date['DATE_KEY'] = (
+        #     dim_date['Year'].astype(str) + 
+        #     dim_date['Quarter'].astype(str).str.zfill(2) + 
+        #     '01'
+        # ).astype(int)
+        # dim_date['DateKey'] = range(1, len(dim_date) + 1)
         
         # Add season based on month
         def get_season(month):
@@ -118,6 +118,8 @@ def create_dim_date(
         
         context.log.info(f"Created date dimension with {len(dim_date)} records")
         context.log.info(f"Date range: {dim_date['Date'].min()} to {dim_date['Date'].max()}")
+
+        context.log.info(f"Date dimension head: {dim_date.head()}")
         
         return dim_date
         
@@ -218,7 +220,7 @@ def create_dim_nationality(
         dim_nationality = dim_nationality.drop_duplicates(subset=['CountryCode'], keep='first')
         
         # Add surrogate key
-        dim_nationality['NationalityKey'] = range(1, len(dim_nationality) + 1)
+        # dim_nationality['NationalityKey'] = range(1, len(dim_nationality) + 1)
         
         context.log.info(f"Created nationality dimension with {len(dim_nationality)} records")
         
@@ -342,7 +344,7 @@ def create_dim_peak(
         dim_peak = dim_peak.drop_duplicates(subset=['PeakID'], keep='first')
         
         # Add surrogate key
-        dim_peak['PeakKey'] = range(1, len(dim_peak) + 1)
+        # dim_peak['PeakKey'] = range(1, len(dim_peak) + 1)
         
         context.log.info(f"Created peak dimension with {len(dim_peak)} records")
         context.log.info(f"Height range: {dim_peak['HeightMeters'].min():.0f}m to {dim_peak['HeightMeters'].max():.0f}m")
@@ -428,7 +430,7 @@ def create_dim_expedition_status(
         dim_status = dim_status.drop_duplicates(subset=['TerminationReason'], keep='first')
         
         # Add surrogate key
-        dim_status['StatusKey'] = range(1, len(dim_status) + 1)
+        # dim_status['StatusKey'] = range(1, len(dim_status) + 1)
         
         context.log.info(f"Created expedition status dimension with {len(dim_status)} records")
         
@@ -523,7 +525,7 @@ def create_dim_route(
         dim_route = pd.concat([dim_route, unknown_route], ignore_index=True)
         
         # Add surrogate key
-        dim_route['RouteKey'] = range(1, len(dim_route) + 1)
+        # dim_route['RouteKey'] = range(1, len(dim_route) + 1)
         
         context.log.info(f"Created route dimension with {len(dim_route)} records")
         
@@ -778,7 +780,7 @@ def create_dim_host_country(
             'CountryCode': 'UNK',
             'CountryName': 'Unknown',
             'Region': 'Unknown',
-            'Subregion': 'Unknown',
+            'SubRegion': 'Unknown',
             'CreatedDate': datetime.now(),
             'ModifiedDate': datetime.now()
         })
@@ -789,8 +791,9 @@ def create_dim_host_country(
         # Remove duplicates and sort
         dim_host_country = dim_host_country.drop_duplicates(subset=['CountryCode'])
         dim_host_country = dim_host_country.sort_values('CountryCode').reset_index(drop=True)
-          # Add surrogate key
-        dim_host_country['HostCountryKey'] = range(1, len(dim_host_country) + 1)
+
+        # Add surrogate key
+        # dim_host_country['HostCountryKey'] = range(1, len(dim_host_country) + 1)
         
         context.log.info(f"Created host country dimension with {len(dim_host_country)} records")
         return dim_host_country
@@ -875,7 +878,7 @@ def create_dim_member(
         dim_member = dim_member.reset_index(drop=True)
         
         # Add surrogate key
-        dim_member['MemberKey'] = range(1, len(dim_member) + 1)
+        # dim_member['MemberKey'] = range(1, len(dim_member) + 1)
         
         context.log.info(f"Created member dimension with {len(dim_member)} records")
 

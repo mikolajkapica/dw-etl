@@ -202,6 +202,11 @@ def load_fact_expeditions(
     context.log.info(f"  - Country Indicators: {dim_country_indicators_loaded.get('records_loaded', 0)} records")
     
     context.log.info(f"Loading {len(fact_data)} fact records to database")
+
+    fact_data = fact_data[:5]
+
+    # sample
+    context.log.info(f"Sample of fact data to load:\n{fact_data.head()}")
     
     try:
         # Load data using bulk insert

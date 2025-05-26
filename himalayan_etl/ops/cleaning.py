@@ -133,6 +133,7 @@ def clean_expeditions_data(
         context.log.info(
             f"Rows: {initial_rows} → {final_rows} ({initial_rows - final_rows} removed)"
         )
+        context.log.info(f"Head of cleaned DataFrame: {df.head()}")
 
         return df
 
