@@ -66,7 +66,7 @@ class DatabaseResource:
                 if_exists="fail",
                 index=False,
                 method="multi",
-                chunksize=100,
+                chunksize=50,
             )
             logging.info(f"Successfully inserted {len(df)} rows into {table_name}")
             return len(df)
