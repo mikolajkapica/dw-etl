@@ -5,13 +5,14 @@ import numpy as np
 from datetime import datetime
 from thefuzz import fuzz, process
 from dagster import (
+    In,
     op,
     Out,
     OpExecutionContext,
     RetryPolicy,
 )
 
-from ..resources import ETLConfigResource
+from ..resources import ETLConfigResource, world_bank_config_schema
 
 
 @op(
@@ -693,3 +694,124 @@ def _validate_cleaned_data(df: pd.DataFrame, context: OpExecutionContext):
                 )
 
     context.log.info("Data validation completed")
+
+
+@op(
+    ins={"wb_data": In(pd.DataFrame)},
+    out=Out(pd.DataFrame, description="Cleaned World Bank data"),
+    config_schema=world_bank_config_schema,
+    retry_policy=RetryPolicy(max_retries=2, delay=2),
+    description="Clean and standardize World Bank data",
+    required_resource_keys={"etl_config"},
+)
+def clean_world_bank_data(
+    context,
+    wb_data: pd.DataFrame
+) -> pd.DataFrame:
+    """
+    Clean and standardize World Bank data.
+"""
+    if wb_data.empty:
+        context.log.warning("No World Bank data to clean")
+        return pd.DataFrame()
+    
+    context.log.info(f"Cleaning {len(wb_data)} World Bank records")
+    etl_config: ETLConfigResource = context.resources.etl_config
+    
+    try:
+        cleaned_df = wb_data.copy()
+        
+        # Standardize column names to match expected format
+        column_mapping = {
+            'country_code': 'Country Code',
+            'country_name': 'Country Name', 
+            'indicator_code': 'Series Code',
+            'indicator_name': 'Series Name',
+            'year': 'Year',
+            'value': 'Value'
+        }
+        cleaned_df = cleaned_df.rename(columns=column_mapping)
+        
+        # Remove records with null values
+        initial_count = len(cleaned_df)
+        cleaned_df = cleaned_df.dropna(subset=['Value'])
+        context.log.info(f"Removed {initial_count - len(cleaned_df)} records with null values")
+          # Standardize country names using ETL config mappings
+        if hasattr(etl_config, 'country_name_mappings'):
+            cleaned_df['country_name_standardized'] = cleaned_df['Country Name'].map(
+                etl_config.country_name_mappings
+            ).fillna(cleaned_df['Country Name'])
+        else:
+            cleaned_df['country_name_standardized'] = cleaned_df['Country Name']
+        
+        # Filter for reasonable data ranges
+        cleaned_df = _apply_data_validation(cleaned_df, context)
+        
+        # Add data quality flags
+        cleaned_df['data_quality_score'] = _calculate_data_quality_score(cleaned_df)
+        
+        context.log.info(f"Cleaned World Bank data: {len(cleaned_df)} records remaining")
+        
+        return cleaned_df
+        
+    except Exception as e:
+        context.log.error(f"Error cleaning World Bank data: {str(e)}")
+        raise
+
+
+
+
+
+
+
+
+
+
+def _apply_data_validation(df: pd.DataFrame, context) -> pd.DataFrame:
+    """
+    Apply data validation rules to World Bank data.
+    """
+    
+    initial_count = len(df)
+      # Define reasonable ranges for each indicator
+    validation_rules = {
+        'NY.GDP.PCAP.CD': (0, 200000),        # GDP per capita
+        'HD.HCI.OVRL': (0, 1),                # Human Capital Index (0-1 scale)
+        'IT.NET.USER.ZS': (0, 100),           # Internet users percentage
+        'SH.MED.PHYS.ZS': (0, 100),           # Physicians per 1000 people
+        'PV.EST': (-3, 3),                    # Political Stability Index (-2.5 to 2.5 scale)
+    }
+    
+    # Apply validation rules
+    for indicator, (min_val, max_val) in validation_rules.items():
+        if indicator in df['indicator_code'].values:
+            mask = (
+                (df['indicator_code'] == indicator) & 
+                ((df['value'] < min_val) | (df['value'] > max_val))
+            )
+            df = df[~mask]
+    
+    removed_count = initial_count - len(df)
+    if removed_count > 0:
+        context.log.warning(f"Removed {removed_count} records due to validation rules")
+    
+    return df
+
+
+def _calculate_data_quality_score(df: pd.DataFrame) -> pd.Series:
+    """
+    Calculate a data quality score for World Bank records.
+    """
+    
+    # Start with base score
+    scores = pd.Series(1.0, index=df.index)
+    
+    # Penalize very old data
+    current_year = datetime.now().year
+    age_penalty = np.maximum(0, (current_year - df['year'] - 5) * 0.01)
+    scores -= age_penalty
+    
+    # Ensure scores are between 0 and 1
+    scores = scores.clip(0, 1)
+    
+    return scores

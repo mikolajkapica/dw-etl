@@ -3,18 +3,15 @@ Simplified resources for the Himalayan Expeditions ETL pipeline.
 Resources provide database connections, file system access, and configuration.
 """
 
+from dataclasses import dataclass
 import os
 import logging
-from typing import Dict, Any, Optional, List
 from sqlalchemy import create_engine, text
 import pandas as pd
-from dagster import resource, InitResourceContext, ConfigurableResource
-from pathlib import Path
+from dagster import RetryPolicy, ConfigurableResource
 
 
 class DatabaseResource:
-    """SQL Server database resource for ETL operations."""
-    
     def __init__(
         self,
         server: str = None,
@@ -22,29 +19,22 @@ class DatabaseResource:
         username: str = None,
         password: str = None,
         driver: str = None,
-        trusted_connection: bool = True  # Default to Windows Authentication
     ):
         self.server = server or os.getenv("DB_SERVER", "localhost")
         self.database = database or os.getenv("DB_NAME", "HimalayanExpeditionsDW")
         self.username = username or os.getenv("DB_USERNAME", "")
         self.password = password or os.getenv("DB_PASSWORD", "")
         self.driver = driver or os.getenv("DB_DRIVER", "ODBC Driver 17 for SQL Server")
-        self.trusted_connection = trusted_connection
         self._engine = None
-    
+
     def get_connection_string(self) -> str:
-        """Build SQL Server connection string."""
-        if self.trusted_connection:
-            return (f"mssql+pyodbc://@{self.server}/{self.database}"
-                   f"?driver={self.driver}&trusted_connection=yes"
-                   f"&TrustServerCertificate=yes&Encrypt=yes")
-        else:
-            return (f"mssql+pyodbc://{self.username}:{self.password}@"
-                   f"{self.server}/{self.database}?driver={self.driver}"
-                   f"&TrustServerCertificate=yes&Encrypt=yes")
-    
+        return (
+            f"mssql+pyodbc://@{self.server}/{self.database}"
+            f"?driver={self.driver}&trusted_connection=yes"
+            f"&TrustServerCertificate=yes&Encrypt=yes"
+        )
+
     def get_engine(self):
-        """Get SQLAlchemy engine with connection pooling."""
         if self._engine is None:
             connection_string = self.get_connection_string()
             self._engine = create_engine(
@@ -52,249 +42,70 @@ class DatabaseResource:
                 pool_size=5,
                 max_overflow=10,
                 pool_timeout=30,
-                pool_recycle=3600
+                pool_recycle=3600,
             )
         return self._engine
-    
-    def execute_query(self, query: str, params: Dict[str, Any] = None) -> pd.DataFrame:
-        """Execute a query and return results as DataFrame."""
+
+    def execute_query(self, query: str, params: dict[str, any] = None) -> pd.DataFrame:
         try:
             with self.get_engine().connect() as conn:
                 return pd.read_sql(text(query), conn, params=params)
         except Exception as e:
-            logging.error(f"Database query failed: {e}")
-            raise
-      def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
-        """Bulk insert DataFrame into database table."""
+            raise Exception(f"Database query failed: {e}")
+
+    def bulk_insert(self, df: pd.DataFrame, table_name: str) -> int:
         if df.empty:
             logging.warning(f"No data to insert into {table_name}")
             return 0
-            
-        # Limit to 100 rows for testing
-        original_count = len(df)
-        df = df.head(100) if len(df) > 100 else df
-        if original_count > 100:
-            logging.info(f"Limited data from {original_count} to {len(df)} rows for testing")
-
-        logging.info(f"Inserting {len(df)} rows into {table_name}")
-        logging.info(f"Columns: {list(df.columns)}")
 
         try:
-            # Clean string columns to handle encoding issues
-            for col in df.columns:
-                if df[col].dtype == 'object':
-                    df[col] = df[col].astype(str).replace('nan', None)
-            
             rows_affected = df.to_sql(
-                table_name, 
-                self.get_engine(), 
-                if_exists=if_exists, 
+                table_name,
+                self.get_engine(),
+                if_exists="fail",
                 index=False,
-                method='multi',
-                chunksize=100  # Smaller chunks to avoid issues
+                method="multi",
+                chunksize=100,
             )
             logging.info(f"Successfully inserted {len(df)} rows into {table_name}")
             return len(df)
         except Exception as e:
-            logging.error(f"Bulk insert failed for {table_name}: {e}")
-            raise
-        
-    def upsert_dimension(self, df: pd.DataFrame, table_name: str, key_columns: List[str], update_columns: List[str] = None) -> int:
-        """
-        Perform upsert operation on dimension table.
-        
-        Args:
-            df: DataFrame with data to upsert
-            table_name: Target table name
-            key_columns: Columns used to identify existing records
-            update_columns: Columns to update (if None, all non-key columns)
-            
-        Returns:
-            Number of rows affected
-        """
-        if df.empty:
-            return 0
-            
-        if update_columns is None:
-            update_columns = [col for col in df.columns if col not in key_columns]
-        
-        try:
-            with self.get_engine().connect() as conn:
-                # For simplicity, we'll use a basic insert strategy with conflict handling
-                # In a production environment, you might want to implement proper MERGE statements
-                
-                # First, try to insert all records
-                # This will work for new records
-                try:
-                    rows_inserted = df.to_sql(
-                        table_name, 
-                        conn, 
-                        if_exists='append', 
-                        index=False,
-                        method='multi',
-                        chunksize=1000
-                    )
-                    logging.info(f"Inserted {len(df)} new rows into {table_name}")
-                    return len(df)
-                except Exception as insert_error:
-                    # If insert fails due to duplicates, we need to handle updates
-                    logging.warning(f"Bulk insert failed, trying upsert approach: {insert_error}")
-                    
-                    # For each row, try insert first, then update if it fails
-                    rows_affected = 0
-                    for _, row in df.iterrows():
-                        try:
-                            # Try insert first
-                            row_df = pd.DataFrame([row])
-                            row_df.to_sql(table_name, conn, if_exists='append', index=False)
-                            rows_affected += 1
-                        except:                            # If insert fails, try update
-                            try:
-                                # Build update statement with named parameters
-                                set_clause = ", ".join([f"{col} = :upd_{col}" for col in update_columns])
-                                where_clause = " AND ".join([f"{col} = :key_{col}" for col in key_columns])
-                                
-                                update_sql = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
-                                
-                                # Prepare parameters as dictionary
-                                params = {}
-                                for col in update_columns:
-                                    params[f"upd_{col}"] = row[col]
-                                for col in key_columns:
-                                    params[f"key_{col}"] = row[col]
-                                
-                                result = conn.execute(text(update_sql), params)
-                                if result.rowcount > 0:
-                                    rows_affected += 1
-                            except Exception as update_error:
-                                logging.error(f"Failed to update row: {update_error}")
-                                continue
-                    
-                    return rows_affected
-                    
-        except Exception as e:
-            logging.error(f"Upsert operation failed for {table_name}: {e}")
-            raise
+            raise Exception(f"Bulk insert failed for {table_name}: {e}")
 
 
 class FileSystemResource:
-    """File system resource for reading source data files."""
-    
     def __init__(self, base_path: str = None):
         self.base_path = base_path or os.getenv("DATA_SOURCE_PATH", "data/")
-    
+
     def get_file_path(self, filename: str) -> str:
-        """Get full path for a data file."""
         return os.path.join(self.base_path, filename)
-    
+
+    def file_exists(self, filename: str) -> bool:
+        return os.path.exists(self.get_file_path(filename))
+
     def read_csv(self, filename: str, **kwargs) -> pd.DataFrame:
-        """Read CSV file with error handling."""
         file_path = self.get_file_path(filename)
         try:
             if not os.path.exists(file_path):
                 raise FileNotFoundError(f"Data file not found: {file_path}")
-            
             df = pd.read_csv(file_path, **kwargs)
             logging.info(f"Successfully loaded {len(df)} rows from {filename}")
             return df
         except Exception as e:
-            logging.error(f"Failed to read {filename}: {e}")
-            raise
-    
-    def file_exists(self, filename: str) -> bool:
-        """Check if a file exists."""
-        return os.path.exists(self.get_file_path(filename))
+            raise Exception(f"Failed to read {filename}: {e}")
 
 
+@dataclass
+class WorldBankConfig(ConfigurableResource):
+    base_url: str
+    start_year: int
+    end_year: int
+    indicators: list[str]
+    timeout: int = 10
+    max_page_size: int = 32768
+
+
+@dataclass
 class ETLConfigResource:
-    """ETL configuration resource with data mappings and settings."""
-    
-    def __init__(
-        self,
-        batch_size: int = None,
-        max_retry_attempts: int = None,
-        log_level: str = None,
-        data_quality_threshold: float = 0.8,
-        data_directory: str = None,
-        output_directory: str = None,
-        world_bank_base_url: str = None
-    ):
-        self.batch_size = batch_size or int(os.getenv("BATCH_SIZE", "1000"))
-        self.max_retry_attempts = max_retry_attempts or int(os.getenv("MAX_RETRY_ATTEMPTS", "3"))
-        self.log_level = log_level or os.getenv("LOG_LEVEL", "INFO")
-        self.data_quality_threshold = data_quality_threshold
-        self.data_directory = data_directory or "./data"
-        self.output_directory = output_directory or "./output"
-        self.world_bank_base_url = world_bank_base_url or "https://api.worldbank.org/v2"
-    
-    @property
-    def season_mapping(self) -> Dict[str, str]:
-        """Season code standardization mapping."""
-        return {
-            "SPRING": "Spring",
-            "SUMMER": "Summer", 
-            "AUTUMN": "Autumn",
-            "WINTER": "Winter",
-            "FALL": "Autumn",
-            "PRE-MONSOON": "Spring",
-            "POST-MONSOON": "Autumn",
-            "MONSOON": "Summer",
-        }
-    
-    @property
-    def termination_reason_mapping(self) -> Dict[str, Dict[str, Any]]:
-        """Termination reason categorization mapping."""
-        return {
-            "SUCCESS (MAIN PEAK)": {"category": "Success", "is_success": True},
-            "SUCCESS (SUBPEAK)": {"category": "Success", "is_success": True},
-            "UNSUCCESSFUL (ATTEMPT)": {"category": "Attempt", "is_success": False},
-            "UNSUCCESSFUL (OTHER)": {"category": "Failed", "is_success": False},
-            "ABANDONED": {"category": "Abandoned", "is_success": False},
-            "ACCIDENT": {"category": "Accident", "is_success": False},
-            "ILLNESS": {"category": "Medical", "is_success": False},
-            "WEATHER": {"category": "Weather", "is_success": False},
-            "ROUTE": {"category": "Route", "is_success": False},
-            "PERMITS": {"category": "Administrative", "is_success": False},
-            "UNKNOWN": {"category": "Unknown", "is_success": False},
-        }
-    
-    @property
-    def country_code_mapping(self) -> Dict[str, str]:
-        """Country name to ISO3 code mapping."""
-        return {
-            "NEPAL": "NPL",
-            "INDIA": "IND", 
-            "PAKISTAN": "PAK",
-            "CHINA": "CHN",
-            "TIBET": "CHN",  # Tibet is part of China
-            "BHUTAN": "BTN",
-            "MYANMAR": "MMR",
-            "BURMA": "MMR",  # Historical name
-            "USA": "USA",
-            "UNITED STATES": "USA",
-            "UK": "GBR",
-            "UNITED KINGDOM": "GBR",
-            "GREAT BRITAIN": "GBR",
-            "RUSSIA": "RUS",
-            "USSR": "RUS",  # Historical
-            "SOVIET UNION": "RUS",  # Historical
-            "JAPAN": "JPN",
-            "SOUTH KOREA": "KOR",
-            "KOREA": "KOR",
-        }
-
-
-# # Simple resource factory functions
-# def create_database_resource(**kwargs) -> DatabaseResource:
-#     """Create database resource with configuration."""
-#     return DatabaseResource(**kwargs)
-
-
-# def create_filesystem_resource(**kwargs) -> FileSystemResource:
-#     """Create filesystem resource with configuration."""
-#     return FileSystemResource(**kwargs)
-
-
-# def create_etl_config_resource(**kwargs) -> ETLConfigResource:
-#     """Create ETL configuration resource."""
-#     return ETLConfigResource(**kwargs)
+    data_directory: str
+    log_level: str
