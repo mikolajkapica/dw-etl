@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from dagster import Field, In, OpExecutionContext, Out, RetryPolicy, String, op, Array
+from dagster import Field, In, Nothing, OpExecutionContext, Out, RetryPolicy, String, op, Array
 import pandas as pd
 
 from himalayan_etl.resources import DatabaseResource, ETLConfigResource
@@ -21,7 +21,7 @@ class LoadResult:
 @op(
     name="load_table",
     description="Load table into SQL Server table with upsert logic",
-    ins={"table_data": In(pd.DataFrame)},
+    ins={"table_data": In(pd.DataFrame), "_after": In(Nothing)},
     out=Out(LoadResult, description="Load results"),
     retry_policy=RetryPolicy(max_retries=3, delay=1.0),
     config_schema=load_table_config_schema,
