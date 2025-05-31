@@ -262,7 +262,7 @@ def extract_peaks_data(context: OpExecutionContext) -> pd.DataFrame:
 )
 def extract_world_bank_data(context) -> pd.DataFrame:
     context.log.info(f"Starting World Bank data extraction")
-    world_bank_config: WorldBankConfig = context.world_bank_config
+    world_bank_config: WorldBankConfig = context.resources.world_bank_config
 
     all_data = []
 
@@ -287,8 +287,7 @@ def extract_world_bank_data(context) -> pd.DataFrame:
                 {
                     "COUNTRYCODE": record["country"]["id"],
                     "COUNTRYNAME": record["country"]["value"],
-                    "INDICATORNAME": record["indicator"]["id"],
-                    "INDICATORNAME": record["indicator"]["value"],
+                    "INDICATORCODE": record["indicator"]["id"],
                     "YEAR": int(record["date"]),
                     "VALUE": (float(record["value"]) if record["value"] else None),
                 }

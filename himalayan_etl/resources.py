@@ -53,8 +53,8 @@ class DatabaseResource:
         except Exception as e:
             logging.error(f"Database query failed: {e}")
             raise
-    def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
-        """Bulk insert DataFrame into database table."""
+
+    def bulk_insert(self, df: pd.DataFrame, table_name: str) -> int:
         if df.empty:
             logging.warning(f"No data to insert into {table_name}")
             return 0
@@ -74,88 +74,6 @@ class DatabaseResource:
             logging.error(f"Bulk insert failed for {table_name}: {e}")
             raise
         
-    def upsert_dimension(self, df: pd.DataFrame, table_name: str, key_columns: List[str], update_columns: List[str] = None) -> int:
-        """
-        Perform upsert operation on dimension table.
-        
-        Args:
-            df: DataFrame with data to upsert
-            table_name: Target table name
-            key_columns: Columns used to identify existing records
-            update_columns: Columns to update (if None, all non-key columns)
-            
-        Returns:
-            Number of rows affected
-        """
-        if df.empty:
-            return 0
-            
-        if update_columns is None:
-            update_columns = [col for col in df.columns if col not in key_columns]
-        
-        try:
-            with self.get_engine().connect() as conn:
-                # For simplicity, we'll use a basic insert strategy with conflict handling
-                # In a production environment, you might want to implement proper MERGE statements
-                
-                # First, try to insert all records
-                # This will work for new records
-                try:
-                    # Exclude key columns (e.g., identity columns) from insert
-                    insert_columns = [col for col in df.columns if col not in key_columns]
-                    df_insert = df[insert_columns]
-                    rows_inserted = df_insert.to_sql(
-                        table_name, 
-                        conn, 
-                        if_exists='append', 
-                        index=False,
-                        method='multi',
-                        chunksize=1000
-                    )
-                    logging.info(f"Inserted {len(df_insert)} new rows into {table_name}")
-                    return len(df_insert)
-                except Exception as insert_error:
-                    # If insert fails due to duplicates, we need to handle updates
-                    logging.warning(f"Bulk insert failed, trying upsert approach: {insert_error}")
-                    
-                    # For each row, try insert first, then update if it fails
-                    rows_affected = 0
-                    for _, row in df.iterrows():
-                        try:
-                            # Try insert first, excluding key columns
-                            row_insert = {col: row[col] for col in insert_columns}
-                            row_df = pd.DataFrame([row_insert])
-                            row_df.to_sql(table_name, conn, if_exists='append', index=False)
-                            rows_affected += 1
-                        except:  # If insert fails, try update
-                            try:
-                                # Build update statement with named parameters
-                                set_clause = ", ".join([f"{col} = :upd_{col}" for col in update_columns])
-                                where_clause = " AND ".join([f"{col} = :key_{col}" for col in key_columns])
-                                
-                                update_sql = f"UPDATE {table_name} SET {set_clause} WHERE {where_clause}"
-                                
-                                # Prepare parameters as dictionary
-                                params = {}
-                                for col in update_columns:
-                                    params[f"upd_{col}"] = row[col]
-                                for col in key_columns:
-                                    params[f"key_{col}"] = row[col]
-                                
-                                result = conn.execute(text(update_sql), params)
-                                if result.rowcount > 0:
-                                    rows_affected += 1
-                            except Exception as update_error:
-                                logging.error(f"Failed to update row: {update_error}")
-                                continue
-                    
-                    return rows_affected
-                    
-        except Exception as e:
-            logging.error(f"Upsert operation failed for {table_name}: {e}")
-            raise
-
-
 class FileSystemResource:
     def __init__(self, base_path: str = None):
         self.base_path = base_path or os.getenv("DATA_SOURCE_PATH", "data/")
@@ -179,13 +97,13 @@ class FileSystemResource:
 
 
 @dataclass
-class WorldBankConfig(ConfigurableResource):
+class WorldBankConfig:
     base_url: str
     start_year: int
     end_year: int
     indicators: list[str]
-    timeout: int = 10
-    max_page_size: int = 32768
+    timeout: int
+    max_page_size: int
 
 
 @dataclass
