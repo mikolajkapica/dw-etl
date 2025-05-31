@@ -450,15 +450,60 @@ def clean_world_bank_data(
             "indicator_name": "Series Name",
             "year": "Year",
             "value": "Value"
+
+
         })
+
+        # merge on country_code and year so we have all indicators for each country
+
+        # head
+        context.log.info(f"Raw World Bank data sample:\n{df.head()}")
+
+
+        # Pivot so each indicator is a column, indexed by Country Code, Country Name, and Year
+        # df = df.pivot_table(
+        #     index=["Country Code", "Country Name", "Year"],
+        #     columns="Series Name",
+        #     values="value"
+        # ).reset_index()
+
+        # Optionally flatten the columns if needed (remove multi-index)
+        df.columns.name = None
+
+        # Move Series Name columns to regular columns (already done by pivot_table)
+        # If you want to keep Series Code as well, you can merge it back if needed
+
+        # Log the new shape and columns
+        context.log.info(f"Pivoted World Bank data shape: {df.shape}")
+        context.log.info(f"Pivoted columns: {df.columns.tolist()}")
+        context.log.info(f"Transformed World Bank data sample:\n{df.head()}")
+
+
+
 
         # Ensure correct types
         df["Year"] = pd.to_numeric(df["Year"], errors="coerce").astype("Int64")
-        df["Value"] = pd.to_numeric(df["Value"], errors="coerce")
+
+        # df['HEALTH_EXPENDITURE'] = _convert_to_numeric(
+        #     df['Current health expenditure per capita (current US$)'], "float", context, "Current health expenditure per capita (current US$)"
+        # )
+        # df['GDP_PER_CAPITA_USD'] = _convert_to_numeric(
+        #     df['GDP per capita (current US$)'], "float", context, "GDP per capita (current US$)"
+        # )
+        # df['LAND_AREA'] = _convert_to_numeric(
+        #     df['Land area (sq. km)'], "float", context, "Land area (sq. km)"
+        # )
+        # df['LIFE_EXPECTANCY'] = _convert_to_numeric(
+        #     df['Life expectancy at birth, total (years)'], "float", context, "Life expectancy at birth, total (years)"
+        # )
+        # df['LITERACY_RATE'] = _convert_to_numeric(
+        #     df['Literacy rate, adult total (% of people ages 15 and above)'], "float", context, "Literacy rate, adult total (% of people ages 15 and above)"
+        # )
+
 
         # Remove rows with missing values
         initial_long_rows = len(df)
-        df = df.dropna(subset=["Value"])
+        # df = df.dropna(subset=["Value"])
         removed_na = initial_long_rows - len(df)
 
         context.log.info(f"Removed {removed_na} rows with missing indicator values")

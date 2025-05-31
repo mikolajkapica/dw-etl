@@ -92,11 +92,11 @@ def create_dim_date(
             'IsWeekend': (date_range.dayofweek >= 5).astype(int),
         })
           # Create DateKey and DATE_KEY columns for fact table joining
-        dim_date['DATE_KEY'] = (
-            dim_date['Year'].astype(str) + 
-            dim_date['Quarter'].astype(str).str.zfill(2) + 
-            '01'
-        ).astype(int)
+        # dim_date['DATE_KEY'] = (
+        #     dim_date['Year'].astype(str) + 
+        #     dim_date['Quarter'].astype(str).str.zfill(2) + 
+        #     '01'
+        # ).astype(int)
         dim_date['DateKey'] = range(1, len(dim_date) + 1)
         
         # Add season based on month
@@ -580,6 +580,9 @@ def load_dimension_table(
         # Prepare update columns if not specified
         if not update_columns:
             update_columns = [col for col in dimension_data.columns if col not in key_columns]
+
+        context.log.info(f"Key columns: {key_columns}")
+        context.log.info(f"Update columns: {update_columns}")
         
         # Perform upsert operation
         rows_affected = db.upsert_dimension(
@@ -825,7 +828,7 @@ def create_dim_member(
     context.log.info(F"Head of enhanced members data:\n{enhanced_members.head()}")
     try:
         # Create member dimension with key attributes including MEMBID for unique identification
-        required_columns = ['EXPID', 'MEMBID', 'FNAME', 'LNAME', 'MYEAR', 'SEX', 'AGE', 'CITIZEN', 'CALCAGE']
+        required_columns = ['MEMBID', 'FNAME', 'LNAME', 'MYEAR', 'SEX', 'AGE', 'CITIZEN', 'CALCAGE']
         available_columns = [col for col in required_columns if col in enhanced_members.columns]
 
         context.log.info(f"Available columns for member dimension: {available_columns}")
@@ -867,7 +870,7 @@ def create_dim_member(
         # Add metadata
         dim_member['CreatedDate'] = datetime.now()
         dim_member['ModifiedDate'] = datetime.now()
-        dim_member = dim_member[['EXPID', 'MemberID', 'FullName', 'FNAME', 'LNAME', 'Gender', 'Age', 'AgeGroup', 
+        dim_member = dim_member[['MemberID', 'FullName', 'FNAME', 'LNAME', 'Gender', 'Age', 'AgeGroup', 
                                 'BirthYear', 'CitizenshipCountry', 'CreatedDate', 'ModifiedDate']]
         
         # Remove duplicates based on key attributes

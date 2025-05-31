@@ -64,7 +64,7 @@ class DatabaseResource:
         except Exception as e:
             logging.error(f"Database query failed: {e}")
             raise
-      def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
+    def bulk_insert(self, df: pd.DataFrame, table_name: str, if_exists: str = "append") -> int:
         """Bulk insert DataFrame into database table."""
         if df.empty:
             logging.warning(f"No data to insert into {table_name}")
@@ -126,7 +126,10 @@ class DatabaseResource:
                 # First, try to insert all records
                 # This will work for new records
                 try:
-                    rows_inserted = df.to_sql(
+                    # Exclude key columns (e.g., identity columns) from insert
+                    insert_columns = [col for col in df.columns if col not in key_columns]
+                    df_insert = df[insert_columns]
+                    rows_inserted = df_insert.to_sql(
                         table_name, 
                         conn, 
                         if_exists='append', 
@@ -134,8 +137,8 @@ class DatabaseResource:
                         method='multi',
                         chunksize=1000
                     )
-                    logging.info(f"Inserted {len(df)} new rows into {table_name}")
-                    return len(df)
+                    logging.info(f"Inserted {len(df_insert)} new rows into {table_name}")
+                    return len(df_insert)
                 except Exception as insert_error:
                     # If insert fails due to duplicates, we need to handle updates
                     logging.warning(f"Bulk insert failed, trying upsert approach: {insert_error}")
@@ -144,11 +147,12 @@ class DatabaseResource:
                     rows_affected = 0
                     for _, row in df.iterrows():
                         try:
-                            # Try insert first
-                            row_df = pd.DataFrame([row])
+                            # Try insert first, excluding key columns
+                            row_insert = {col: row[col] for col in insert_columns}
+                            row_df = pd.DataFrame([row_insert])
                             row_df.to_sql(table_name, conn, if_exists='append', index=False)
                             rows_affected += 1
-                        except:                            # If insert fails, try update
+                        except:  # If insert fails, try update
                             try:
                                 # Build update statement with named parameters
                                 set_clause = ", ".join([f"{col} = :upd_{col}" for col in update_columns])

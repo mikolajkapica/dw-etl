@@ -223,33 +223,34 @@ def create_dim_country_indicators(
         pivot_df = pivot_df.rename(columns=indicator_mappings)
         
         # Create dimension key
-        pivot_df['INDICATOR_KEY'] = range(1, len(pivot_df) + 1)
+        pivot_df['IndicatorKey'] = range(1, len(pivot_df) + 1)
           # Rename standard columns
         pivot_df = pivot_df.rename(columns={
-            'Country Code': 'COUNTRY_CODE',
-            'Country Name': 'COUNTRY_NAME',
-            'Year': 'YEAR'
+            'Country Code': 'CountryCode',
+            'Year': 'Year'
         })
         # Calculate derived indicators (removed GDP_TOTAL calculation since no population data)
         # Could add other derived metrics here if needed
         
         # Add metadata columns
-        pivot_df['LAST_UPDATED'] = datetime.now()
-        pivot_df['DATA_SOURCE'] = 'World Bank API'
+        pivot_df['LastUpdated'] = datetime.now()
+        pivot_df['DataSource'] = 'World Bank API'
         # Select final columns
         dimension_columns = [
-            'INDICATOR_KEY', 'COUNTRY_CODE', 'COUNTRY_NAME', 'YEAR',
+            'IndicatorKey', 'CountryCode', 'Year',
             'GDP_PER_CAPITA_USD', 'HUMAN_CAPITAL_INDEX', 'INTERNET_USERS_PERCENT',
             'PHYSICIANS_PER_1000', 'POLITICAL_STABILITY_INDEX',
-            'LAST_UPDATED', 'DATA_SOURCE'
+            'LastUpdated', 'DataSource'
         ]
         
         # Keep only columns that exist
         available_columns = [col for col in dimension_columns if col in pivot_df.columns]
         dim_indicators = pivot_df[available_columns]
+
         
+        context.log.info(f"Created country indicators dimension with columns: {list(dim_indicators.columns)}")
         # Sort by country and year
-        dim_indicators = dim_indicators.sort_values(['COUNTRY_NAME', 'YEAR'])
+        dim_indicators = dim_indicators.sort_values(['Year'])
         
         context.log.info(f"Created country indicators dimension with {len(dim_indicators)} records")
         
