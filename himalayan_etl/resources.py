@@ -6,9 +6,10 @@ Resources provide database connections, file system access, and configuration.
 from dataclasses import dataclass
 import os
 import logging
+import time
 from sqlalchemy import create_engine, text
 import pandas as pd
-from dagster import RetryPolicy, ConfigurableResource
+from dagster import OpExecutionContext, RetryPolicy, ConfigurableResource
 
 
 class DatabaseResource:
@@ -46,33 +47,133 @@ class DatabaseResource:
             )
         return self._engine
 
-    def execute_query(self, query: str, params: dict[str, any] = None) -> pd.DataFrame:
+    def execute_query(self, context: OpExecutionContext, query: str, params: dict[str, any] = None) -> pd.DataFrame:
         try:
             with self.get_engine().connect() as conn:
                 return pd.read_sql(text(query), conn, params=params)
         except Exception as e:
-            logging.error(f"Database query failed: {e}")
+            context.log.error(f"Database query failed: {e}")
             raise
 
-    def bulk_insert(self, df: pd.DataFrame, table_name: str) -> int:
+    def bulk_insert(self, context: OpExecutionContext, df: pd.DataFrame, table_name: str) -> int:
         if df.empty:
-            logging.warning(f"No data to insert into {table_name}")
+            context.log.warning(f"No data to insert into {table_name}")
             return 0
+
+        context.log.info(f"Starting bulk insert into {table_name} with {len(df)} records")
 
         try:
             rows_affected = df.to_sql(
                 table_name,
                 self.get_engine(),
-                if_exists="fail",
+                if_exists="append",
                 index=False,
                 method="multi",
                 chunksize=50,
             )
-            logging.info(f"Successfully inserted {len(df)} rows into {table_name}")
+            context.log.info(f"Successfully inserted {len(df)} rows into {table_name}")
             return len(df)
         except Exception as e:
-            logging.error(f"Bulk insert failed for {table_name}: {e}")
+            context.log.error(f"Bulk insert failed for {table_name}: {e}")
             raise
+    
+    def table_exists(self, context: OpExecutionContext, table_name: str) -> bool:
+        query = f"""
+        SELECT COUNT(*)
+        FROM INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME = :table_name
+        """
+        result = self.execute_query(context, query, {"table_name": table_name})
+        return result.iloc[0, 0] > 0
+    
+    def drop_table(self, context: OpExecutionContext, table_name: str):
+        query = f"DROP TABLE IF EXISTS {table_name}"
+        try:
+            context.log.info(f"Executing drop table query: {query}")
+            with self.get_engine().connect() as conn:
+                conn.execute(text(query))
+                conn.commit()
+            context.log.info(f"Successfully dropped table {table_name}")
+        except Exception as e:
+            context.log.error(f"Failed to drop table {table_name}: {e}")
+            raise Exception(f"Failed to drop table {table_name}: {e}")
+    
+    def set_pk(self, context: OpExecutionContext, table_name: str, pk_column: str, datatype: str):
+        alter_column_query = f"""
+        ALTER TABLE {table_name}
+        ALTER COLUMN {pk_column} {datatype} NOT NULL;
+        """
+        add_pk_query = f"""
+        ALTER TABLE {table_name}
+        ADD CONSTRAINT PK_{table_name} PRIMARY KEY ({pk_column});
+        """
+        try:
+            context.log.info(f"Ensuring column {pk_column} in {table_name} is NOT NULL before setting primary key")
+            with self.get_engine().connect() as conn:
+                conn.execute(text(alter_column_query))
+                conn.execute(text(add_pk_query))
+                conn.commit()
+            context.log.info(f"Successfully set primary key for {table_name}")
+        except Exception as e:
+            context.log.error(f"Failed to set primary key for {table_name}: {e}")
+            raise Exception(f"Failed to set primary key for {table_name}: {e}")
+
+    def set_fk(self, context: OpExecutionContext, table_name: str, fk_column: str, ref_table: str, ref_column: str):
+        query = f"""
+        ALTER TABLE {table_name}
+        ADD CONSTRAINT FK_{fk_column} FOREIGN KEY ({fk_column}) REFERENCES {ref_table}({ref_column});
+        """
+        try:
+            context.log.info(f"Setting foreign key for {table_name} on column {fk_column} referencing {ref_table}({ref_column})")
+            with self.get_engine().connect() as conn:
+                conn.execute(text(query))
+                conn.commit()
+            context.log.info(f"Successfully set foreign key for {table_name}")
+        except Exception as e:
+            context.log.error(f"Failed to set foreign key for {table_name}: {e}")
+            raise Exception(f"Failed to set foreign key for {table_name}: {e}")
+
+    def drop_fk(self, context: OpExecutionContext, table_name: str, fk_column: str):
+        query = f"""
+        ALTER TABLE {table_name}
+        DROP CONSTRAINT FK_{fk_column};
+        """
+        try:
+            context.log.info(f"Dropping foreign key {fk_column} from {table_name}")
+            with self.get_engine().connect() as conn:
+                conn.execute(text(query))
+                conn.commit()
+            context.log.info(f"Successfully dropped foreign key {fk_column} from {table_name}")
+        except Exception as e:
+            context.log.error(f"Failed to drop foreign key {fk_column} from {table_name}: {e}")
+            raise Exception(f"Failed to drop foreign key {fk_column} from {table_name}: {e}")
+    
+    def get_table_schema(self, context: OpExecutionContext, table_name: str) -> pd.DataFrame:
+        query = f"""
+        SELECT COLUMN_NAME, DATA_TYPE, IS_NULLABLE, CHARACTER_MAXIMUM_LENGTH
+        FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_NAME = :table_name
+        """
+        try:
+            return self.execute_query(context, query, {"table_name": table_name})
+        except Exception as e:
+            context.log.error(f"Failed to get schema for {table_name}: {e}")
+            raise
+    
+    def set_type(self, context: OpExecutionContext, table_name: str, column_name: str, new_type: str):
+        query = f"""
+        ALTER TABLE {table_name}
+        ALTER COLUMN {column_name} {new_type};
+        """
+        try:
+            context.log.info(f"Changing type of {column_name} in {table_name} to {new_type}")
+            with self.get_engine().connect() as conn:
+                conn.execute(text(query))
+                conn.commit()
+            context.log.info(f"Successfully changed type of {column_name} in {table_name} to {new_type}")
+        except Exception as e:
+            context.log.error(f"Failed to change type for {column_name} in {table_name}: {e}")
+            raise Exception(f"Failed to change type for {column_name} in {table_name}: {e}")
         
 class FileSystemResource:
     def __init__(self, base_path: str = None):

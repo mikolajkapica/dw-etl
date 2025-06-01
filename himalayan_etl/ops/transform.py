@@ -1,4 +1,5 @@
 import uuid
+from fuzzywuzzy import process
 import pandas as pd
 from dagster import In, op, Out, OpExecutionContext
 
@@ -10,6 +11,8 @@ from dagster import In, op, Out, OpExecutionContext
         "raw_members": In(pd.DataFrame),
         "dim_country_indicators": In(pd.DataFrame),
         "dim_date": In(pd.DataFrame),
+        "dim_expedition": In(pd.DataFrame),
+        "dim_route": In(pd.DataFrame),
     },
     out=Out(pd.DataFrame, description="Transformed members DataFrame"),
 )
@@ -18,6 +21,8 @@ def transform_members_data(
     raw_members: pd.DataFrame,
     dim_country_indicators: pd.DataFrame,
     dim_date: pd.DataFrame,
+    dim_expedition: pd.DataFrame,
+    dim_route: pd.DataFrame,
 ) -> pd.DataFrame:
     context.log.info("Starting members data transformation")
     context.log.info(f"Raw members data sample:\n{raw_members.head()}")
@@ -29,39 +34,78 @@ def transform_members_data(
         raw_members,
         dim_date.rename(columns={"Id": "DateId"}),
         left_on=["MYEAR", "MSEASON"],
-        right_on=["Year", "Season"],
+        right_on=["Year", "Quarter"],
         how="left",
     )
+
+    context.log.info(f"Data after merging with dim_date:\n{with_date.head()}")
+
+    countries = dim_country_indicators["CountryName"].unique()
+    couldnt_match = []
+    country_match_cache = {}
+
+    def fuzzy_match_country(x):
+        if not isinstance(x, str):
+            nonlocal couldnt_match
+            couldnt_match.append(x)
+            return None
+        if x in country_match_cache:
+            return country_match_cache[x]
+        if x in countries:
+            country_match_cache[x] = x
+        else:
+            match = process.extractOne(x, countries)
+            country_match_cache[x] = match[0]
+        return country_match_cache[x]
+
+    with_date["CITIZEN"] = with_date["CITIZEN"].apply(fuzzy_match_country)
+
+    context.log.info(f"Countries that couldn't be matched: {couldnt_match}")
 
     with_country_indicators = pd.merge(
         with_date,
         dim_country_indicators.rename(columns={"Id": "CountryIndicatorId"}),
-        left_on="CITIZEN",
-        right_on="CountryCode",
+        left_on=["CITIZEN", "MYEAR"],
+        right_on=["CountryName", "Year"],
         how="left",
     )
 
-    context.log.info(f"Data after merging with dim_country_indicators:\n{with_country_indicators.head()}")
+    # duplicate 
+
+    # with_routes = pd.merge(
+    #     with_country_indicators,
+    #     dim_route.rename(columns={"Id": "RouteId"}),
+    #     left_on="MROUTE1",
+    #     right_on="Route",
+    #     how="left",
+    # )
+    with_routes = with_country_indicators
+
+
+    context.log.info(
+        f"Data after merging with dim_country_indicators and dim_route:\n{with_routes.head()}"
+    )
 
     # columns
-    context.log.info(f"Columns after merging:\n{with_country_indicators.columns.tolist()}")
+    context.log.info(f"Columns after merging:\n{with_routes.columns.tolist()}")
 
     # pick columns we need
-    raw_members = with_country_indicators[
+    raw_members = with_routes[
         [
             "EXPID",
             "PEAKID",
             "FNAME",
             "LNAME",
-            "BIRTHDATE",
+            "YOB",
             "SEX",
             "CITIZEN",
+            "MSUCCESS",
             "AGE",
-            "MROUTE1",
-            "MROUTE2",
-            "MROUTE3",
+            "DEATH",
+            "MO2USED",
             "DateId",
             "CountryIndicatorId",
+            "RouteId",
         ]
     ]
 
@@ -71,14 +115,14 @@ def transform_members_data(
             "PEAKID": "PeakId",
             "FNAME": "FirstName",
             "LNAME": "LastName",
-            "BIRTHDATE": "BirthDate",
+            "YOB": "YearOfBirth",
             "SEX": "Gender",
             "CITIZEN": "CitizenshipCountry",
             "AGE": "AgeGroup",
+            "MSUCCESS": "Success",
+            "MO2USED": "OxygenUsed",
         }
     )
-
-    raw_members["BirthDate"] = pd.to_datetime(raw_members["BirthDate"], errors="coerce")
 
     age_bins = [0, 18, 30, 40, 50, 60, 70, 80, 90, 100]
     age_labels = [
@@ -99,8 +143,17 @@ def transform_members_data(
         right=False,
     )
 
-    # Create a incremental ID for each row
-    raw_members["Id"] = range(1, len(raw_members) + 1)
+    raw_members.insert(0, "Id", range(1, len(raw_members) + 1))
+
+    raw_members["ExpeditionId"] = raw_members["ExpeditionId"].astype(str)
+    raw_members["PeakId"] = raw_members["PeakId"].astype(str)
+    raw_members["FirstName"] = raw_members["FirstName"].astype(str)
+    raw_members["LastName"] = raw_members["LastName"].astype(str)
+    raw_members["YearOfBirth"] = pd.to_numeric(raw_members["YearOfBirth"], errors="raise")
+    raw_members["Gender"] = raw_members["Gender"].astype(str)
+    raw_members["CitizenshipCountry"] = raw_members["CitizenshipCountry"].astype(str)
+    raw_members["AgeGroup"] = raw_members["AgeGroup"].astype(str)
+    raw_members["Success"] = pd.to_numeric(raw_members["Success"], errors="raise")
 
     return raw_members
 
@@ -140,6 +193,16 @@ def transform_expeditions_data(
         }
     )
 
+    transformed_expeditions = transformed_expeditions.drop_duplicates(subset=["Id"]).reset_index(
+        drop=True
+    )
+
+    transformed_expeditions["Id"] = transformed_expeditions["Id"].astype(str)
+    transformed_expeditions["Host"] = pd.to_numeric(transformed_expeditions["Host"], errors="raise")
+    transformed_expeditions["Route1"] = transformed_expeditions["Route1"].astype(str)
+    transformed_expeditions["Route2"] = transformed_expeditions["Route2"].astype(str)
+    transformed_expeditions["Route3"] = transformed_expeditions["Route3"].astype(str)
+
     return transformed_expeditions
 
 
@@ -172,7 +235,29 @@ def transform_peaks_data(context: OpExecutionContext, raw_peaks: pd.DataFrame) -
         }
     )
 
-    return raw_peaks  # Placeholder for actual cleaning logic
+    raw_peaks["Id"] = raw_peaks["Id"].astype(str)
+    raw_peaks["Name"] = raw_peaks["Name"].astype(str)
+    raw_peaks["HeightMeters"] = pd.to_numeric(raw_peaks["HeightMeters"], errors="raise")
+
+    height_bins = [5000, 5500, 6000, 6500, 7000, 7500, 8000, 8500, 9000]
+    height_labels = [
+        "5000-5499",
+        "5500-5999",
+        "6000-6499",
+        "6500-6999",
+        "7000-7499",
+        "7500-7999",
+        "8000-8499",
+        "8500-8999",
+    ]
+    raw_peaks["HeightCategory"] = pd.cut(
+        raw_peaks["HeightMeters"],
+        bins=height_bins,
+        labels=height_labels,
+        right=False,
+    )
+
+    return raw_peaks
 
 
 @op(
@@ -204,10 +289,14 @@ def transform_world_bank_data(
     columns_to_keep = ["COUNTRYCODE", "COUNTRYNAME", "YEAR"] + indicators
     transformed_world_bank = transformed_world_bank[columns_to_keep]
 
+    for indicator in indicators:
+        transformed_world_bank[indicator] = transformed_world_bank[indicator].interpolate()
+
     transformed_world_bank = transformed_world_bank.rename(
         columns={
             "COUNTRYCODE": "CountryCode",
             "COUNTRYNAME": "CountryName",
+            "YEAR": "Year",
             "NY.GDP.PCAP.CD": "GDPPerCapita",
             "HD.HCI.OVRL": "HumanCapitalIndex",
             "IT.NET.USER.ZS": "InternetUsersPercentage",
@@ -216,8 +305,26 @@ def transform_world_bank_data(
         }
     )
 
-    # Create a incremental ID for each row
-    transformed_world_bank["Id"] = range(1, len(transformed_world_bank) + 1)
+    transformed_world_bank.insert(0, "Id", transformed_world_bank.index + 1)
+
+    transformed_world_bank["CountryCode"] =  transformed_world_bank["CountryCode"].astype(str)
+    transformed_world_bank["CountryName"] = transformed_world_bank["CountryName"].astype(str)
+    transformed_world_bank["Year"] = pd.to_numeric(transformed_world_bank["Year"], errors="raise")
+    transformed_world_bank["GDPPerCapita"] = pd.to_numeric(
+        transformed_world_bank["GDPPerCapita"], errors="raise"
+    )
+    transformed_world_bank["HumanCapitalIndex"] = pd.to_numeric(
+        transformed_world_bank["HumanCapitalIndex"], errors="raise"
+    )
+    transformed_world_bank["InternetUsersPercentage"] = pd.to_numeric(
+        transformed_world_bank["InternetUsersPercentage"], errors="raise"
+    )
+    transformed_world_bank["PhysiciansPer1000People"] = pd.to_numeric(
+        transformed_world_bank["PhysiciansPer1000People"], errors="raise"
+    )
+    transformed_world_bank["PoliticalStabilityIndex"] = pd.to_numeric(
+        transformed_world_bank["PoliticalStabilityIndex"], errors="raise"
+    )
 
     context.log.info(f"Transformed World Bank data sample:\n{transformed_world_bank.head()}")
     return transformed_world_bank
@@ -238,10 +345,36 @@ def create_dim_date(context: OpExecutionContext, raw_members: pd.DataFrame) -> p
         }
     )
 
-    # Remove duplicates
     dim_date = dim_date.drop_duplicates(subset=["Year", "Season"]).reset_index(drop=True)
 
-    # Create a UUID for each row
-    dim_date["Id"] = [uuid.uuid4() for _ in range(len(dim_date))]
+    dim_date.insert(0, "Id", dim_date.index + 1)
+
+    dim_date["Year"] = pd.to_numeric(dim_date["Year"], errors="raise")
+    dim_date["Season"] = pd.to_numeric(dim_date["Season"], errors="raise")
+
+    dim_date["Quarter"] = dim_date["Season"]
+
+    dim_date = dim_date[["Id", "Year", "Quarter"]]
 
     return dim_date
+
+@op(
+    name="create_dim_route",
+    description="Create dimension route DataFrame",
+    ins={"raw_expeditions": In(pd.DataFrame)},
+    out=Out(pd.DataFrame, description="Dimension route DataFrame"),
+)
+def create_dim_route(context: OpExecutionContext, raw_expeditions: pd.DataFrame) -> pd.DataFrame:
+    context.log.info("Creating dimension route DataFrame")
+
+    dim_route = raw_expeditions[
+        ["ROUTE1", "ROUTE2", "ROUTE3", "ROUTE4"]
+    ].stack().drop_duplicates().dropna().reset_index(drop=True)
+
+    dim_route = dim_route.to_frame(name="Route")
+    dim_route.insert(0, "Id", dim_route.index + 1)
+
+    context.log.info(f"Dimension route DataFrame created with {len(dim_route)} unique routes")
+    context.log.info(f"Dimension route DataFrame sample:\n{dim_route.head()}")
+
+    return dim_route
