@@ -6,7 +6,6 @@ from himalayan_etl.ops.extract import (
     extract_peaks_data,
 )
 from himalayan_etl.ops.transform import (
-    create_dim_route,
     transform_expeditions_data,
     transform_members_data,
     transform_peaks_data,
@@ -38,8 +37,7 @@ def himalayan_etl():
     dim_peak = transform_peaks_data(raw_peaks)
     dim_country_indicator = transform_world_bank_data(raw_world_bank)
     dim_date = create_dim_date(raw_members)
-    dim_route = create_dim_route(raw_expeditions)
-    fact_member_expedition = transform_members_data(raw_members, dim_country_indicator, dim_date, dim_expedition, dim_route)
+    fact_member_expedition = transform_members_data(raw_members, dim_country_indicator, dim_date, dim_expedition)
 
     dropped = drop_all_fk(_after=fact_member_expedition)
 
@@ -47,5 +45,4 @@ def himalayan_etl():
     dim_peak_loaded = load_dim_peak(dim_peak, _after=dim_expedition_loaded)
     dim_world_bank_loaded = load_dim_country_indicator(dim_country_indicator, _after=dim_peak_loaded)
     dim_date_loaded = load_dim_date(dim_date, _after=dim_world_bank_loaded)
-    dim_route_loaded = load_dim_route(dim_route, _after=dim_date_loaded)
-    fact_member_expedition_loaded = load_fact_member_expedition(fact_member_expedition, _after=dim_route_loaded)
+    fact_member_expedition_loaded = load_fact_member_expedition(fact_member_expedition, _after=dim_date_loaded)

@@ -22,7 +22,6 @@ def transform_members_data(
     dim_country_indicators: pd.DataFrame,
     dim_date: pd.DataFrame,
     dim_expedition: pd.DataFrame,
-    dim_route: pd.DataFrame,
 ) -> pd.DataFrame:
     context.log.info("Starting members data transformation")
     context.log.info(f"Raw members data sample:\n{raw_members.head()}")
@@ -352,25 +351,3 @@ def create_dim_date(context: OpExecutionContext, raw_members: pd.DataFrame) -> p
     dim_date = dim_date[["Id", "Year", "Quarter"]]
 
     return dim_date
-
-
-@op(
-    name="create_dim_route",
-    description="Create dimension route DataFrame",
-    ins={"raw_expeditions": In(pd.DataFrame)},
-    out=Out(pd.DataFrame, description="Dimension route DataFrame"),
-)
-def create_dim_route(context: OpExecutionContext, raw_expeditions: pd.DataFrame) -> pd.DataFrame:
-    context.log.info("Creating dimension route DataFrame")
-
-    dim_route = (
-        raw_expeditions[["ROUTE1"]].stack().drop_duplicates().dropna().reset_index(drop=True)
-    )
-
-    dim_route = dim_route.to_frame(name="Route")
-    dim_route.insert(0, "Id", dim_route.index + 1)
-
-    context.log.info(f"Dimension route DataFrame created with {len(dim_route)} unique routes")
-    context.log.info(f"Dimension route DataFrame sample:\n{dim_route.head()}")
-
-    return dim_route

@@ -108,9 +108,6 @@ load_dim_expedition = load_table.configured(
     {"table_name": "DIM_Expedition"}, name="load_dim_expedition"
 )
 
-load_dim_route = load_table.configured(
-    {"table_name": "DIM_Route"}, name="load_dim_route"
-)
 
 
 @op(
