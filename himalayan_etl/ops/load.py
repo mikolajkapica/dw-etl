@@ -145,9 +145,7 @@ def load_fact_member_expedition(
 
         db.set_pk(context, table_name, "Id", get_id_datatype(table_data))
 
-        # check types of columns in sql
         schema = db.get_table_schema(context, table_name)
-
         context.log.info(f"Table {table_name} schema: {schema}")
         context.log.info(f"Table DIM_Date schema: {db.get_table_schema(context, 'DIM_Date')}")
 
@@ -162,9 +160,6 @@ def load_fact_member_expedition(
 
         db.set_type(context, table_name, "CountryIndicatorId", "INT")
         db.set_fk(context, table_name, "CountryIndicatorId", "DIM_CountryIndicator", "Id")
-
-        db.set_type(context, table_name, "RouteId", "INT")
-        db.set_fk(context, table_name, "RouteId", "DIM_Route", "Id")
 
         return LoadResult(
             table_name=table_name,

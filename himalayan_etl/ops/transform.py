@@ -70,27 +70,15 @@ def transform_members_data(
         how="left",
     )
 
-    # duplicate 
-
-    # with_routes = pd.merge(
-    #     with_country_indicators,
-    #     dim_route.rename(columns={"Id": "RouteId"}),
-    #     left_on="MROUTE1",
-    #     right_on="Route",
-    #     how="left",
-    # )
-    with_routes = with_country_indicators
-
-
     context.log.info(
-        f"Data after merging with dim_country_indicators and dim_route:\n{with_routes.head()}"
+        f"Data after merging with dim_country_indicators and dim_route:\n{with_country_indicators.head()}"
     )
 
     # columns
-    context.log.info(f"Columns after merging:\n{with_routes.columns.tolist()}")
+    context.log.info(f"Columns after merging:\n{with_country_indicators.columns.tolist()}")
 
     # pick columns we need
-    raw_members = with_routes[
+    raw_members = with_country_indicators[
         [
             "EXPID",
             "PEAKID",
@@ -103,9 +91,9 @@ def transform_members_data(
             "AGE",
             "DEATH",
             "MO2USED",
+            "HIRED",
             "DateId",
             "CountryIndicatorId",
-            "RouteId",
         ]
     ]
 
@@ -121,6 +109,8 @@ def transform_members_data(
             "AGE": "AgeGroup",
             "MSUCCESS": "Success",
             "MO2USED": "OxygenUsed",
+            "HIRED": "Hired",
+            "DEATH": "Death",
         }
     )
 
@@ -178,8 +168,7 @@ def transform_expeditions_data(
             "EXPID",
             "HOST",
             "ROUTE1",
-            "ROUTE2",
-            "ROUTE3",
+            "SUCCESS1",
         ]
     ]
 
@@ -187,9 +176,8 @@ def transform_expeditions_data(
         columns={
             "EXPID": "Id",
             "HOST": "Host",
-            "ROUTE1": "Route1",
-            "ROUTE2": "Route2",
-            "ROUTE3": "Route3",
+            "ROUTE1": "Route",
+            "SUCCESS1": "Success",
         }
     )
 
@@ -199,9 +187,10 @@ def transform_expeditions_data(
 
     transformed_expeditions["Id"] = transformed_expeditions["Id"].astype(str)
     transformed_expeditions["Host"] = pd.to_numeric(transformed_expeditions["Host"], errors="raise")
-    transformed_expeditions["Route1"] = transformed_expeditions["Route1"].astype(str)
-    transformed_expeditions["Route2"] = transformed_expeditions["Route2"].astype(str)
-    transformed_expeditions["Route3"] = transformed_expeditions["Route3"].astype(str)
+    transformed_expeditions["Route"] = transformed_expeditions["Route"].astype(str)
+    transformed_expeditions["Success"] = pd.to_numeric(
+        transformed_expeditions["Success"], errors="raise"
+    )
 
     return transformed_expeditions
 
@@ -290,7 +279,13 @@ def transform_world_bank_data(
     transformed_world_bank = transformed_world_bank[columns_to_keep]
 
     for indicator in indicators:
-        transformed_world_bank[indicator] = transformed_world_bank[indicator].interpolate()
+        first_idx = transformed_world_bank.groupby("COUNTRYCODE").head(1).index
+        null_first = transformed_world_bank.loc[first_idx, indicator].isnull()
+        transformed_world_bank.loc[first_idx[null_first], indicator] = 0
+
+        transformed_world_bank[indicator] = transformed_world_bank.groupby("COUNTRYCODE")[
+            indicator
+        ].transform(lambda x: x.interpolate())
 
     transformed_world_bank = transformed_world_bank.rename(
         columns={
@@ -307,7 +302,7 @@ def transform_world_bank_data(
 
     transformed_world_bank.insert(0, "Id", transformed_world_bank.index + 1)
 
-    transformed_world_bank["CountryCode"] =  transformed_world_bank["CountryCode"].astype(str)
+    transformed_world_bank["CountryCode"] = transformed_world_bank["CountryCode"].astype(str)
     transformed_world_bank["CountryName"] = transformed_world_bank["CountryName"].astype(str)
     transformed_world_bank["Year"] = pd.to_numeric(transformed_world_bank["Year"], errors="raise")
     transformed_world_bank["GDPPerCapita"] = pd.to_numeric(
@@ -358,6 +353,7 @@ def create_dim_date(context: OpExecutionContext, raw_members: pd.DataFrame) -> p
 
     return dim_date
 
+
 @op(
     name="create_dim_route",
     description="Create dimension route DataFrame",
@@ -367,9 +363,9 @@ def create_dim_date(context: OpExecutionContext, raw_members: pd.DataFrame) -> p
 def create_dim_route(context: OpExecutionContext, raw_expeditions: pd.DataFrame) -> pd.DataFrame:
     context.log.info("Creating dimension route DataFrame")
 
-    dim_route = raw_expeditions[
-        ["ROUTE1", "ROUTE2", "ROUTE3", "ROUTE4"]
-    ].stack().drop_duplicates().dropna().reset_index(drop=True)
+    dim_route = (
+        raw_expeditions[["ROUTE1"]].stack().drop_duplicates().dropna().reset_index(drop=True)
+    )
 
     dim_route = dim_route.to_frame(name="Route")
     dim_route.insert(0, "Id", dim_route.index + 1)

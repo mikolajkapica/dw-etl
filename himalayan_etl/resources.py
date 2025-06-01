@@ -135,6 +135,10 @@ class DatabaseResource:
 
     def drop_fk(self, context: OpExecutionContext, table_name: str, fk_column: str):
         query = f"""
+        IF EXISTS (
+            SELECT 1 FROM sys.foreign_keys 
+            WHERE name = 'FK_{fk_column}' AND parent_object_id = OBJECT_ID('{table_name}')
+        )
         ALTER TABLE {table_name}
         DROP CONSTRAINT FK_{fk_column};
         """
