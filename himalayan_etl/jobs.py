@@ -18,7 +18,6 @@ from himalayan_etl.ops.load import (
     load_dim_country_indicator,
     load_dim_peak,
     load_dim_expedition,
-    load_dim_route,
     load_fact_member_expedition,
 )
 

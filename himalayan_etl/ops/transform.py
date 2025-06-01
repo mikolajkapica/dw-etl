@@ -12,7 +12,6 @@ from dagster import In, op, Out, OpExecutionContext
         "dim_country_indicators": In(pd.DataFrame),
         "dim_date": In(pd.DataFrame),
         "dim_expedition": In(pd.DataFrame),
-        "dim_route": In(pd.DataFrame),
     },
     out=Out(pd.DataFrame, description="Transformed members DataFrame"),
 )
@@ -69,14 +68,8 @@ def transform_members_data(
         how="left",
     )
 
-    context.log.info(
-        f"Data after merging with dim_country_indicators and dim_route:\n{with_country_indicators.head()}"
-    )
-
-    # columns
     context.log.info(f"Columns after merging:\n{with_country_indicators.columns.tolist()}")
 
-    # pick columns we need
     raw_members = with_country_indicators[
         [
             "EXPID",
