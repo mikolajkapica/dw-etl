@@ -80,7 +80,7 @@ def transform_members_data(
             "SEX",
             "CITIZEN",
             "MSUCCESS",
-            "AGE",
+            "CALCAGE",
             "DEATH",
             "MO2USED",
             "HIRED",
@@ -98,7 +98,7 @@ def transform_members_data(
             "YOB": "YearOfBirth",
             "SEX": "Gender",
             "CITIZEN": "CitizenshipCountry",
-            "AGE": "AgeGroup",
+            "CALCAGE": "Age",
             "MSUCCESS": "Success",
             "MO2USED": "OxygenUsed",
             "HIRED": "Hired",
@@ -106,9 +106,10 @@ def transform_members_data(
         }
     )
 
-    age_bins = [0, 18, 30, 40, 50, 60, 70, 80, 90, 100]
+    age_bins = [0, 1, 18, 30, 40, 50, 60, 70, 80, 90, 100]
     age_labels = [
-        "0-17",
+        "0",
+        "1-17",
         "18-29",
         "30-39",
         "40-49",
@@ -119,7 +120,7 @@ def transform_members_data(
         "90+",
     ]
     raw_members["AgeGroup"] = pd.cut(
-        raw_members["AgeGroup"],
+        raw_members["Age"],
         bins=age_bins,
         labels=age_labels,
         right=False,
@@ -132,10 +133,15 @@ def transform_members_data(
     raw_members["FirstName"] = raw_members["FirstName"].astype(str)
     raw_members["LastName"] = raw_members["LastName"].astype(str)
     raw_members["YearOfBirth"] = pd.to_numeric(raw_members["YearOfBirth"], errors="raise")
-    raw_members["Gender"] = raw_members["Gender"].astype(str)
+    raw_members["Gender"] = raw_members["Gender"].apply(
+        lambda x: x if x in ["M", "F"] else "UNKNOWN"
+    )
     raw_members["CitizenshipCountry"] = raw_members["CitizenshipCountry"].astype(str)
     raw_members["AgeGroup"] = raw_members["AgeGroup"].astype(str)
-    raw_members["Success"] = pd.to_numeric(raw_members["Success"], errors="raise")
+    raw_members["Success"] = pd.to_numeric(raw_members["Success"], errors="raise").astype(int)
+    raw_members["OxygenUsed"] = pd.to_numeric(raw_members["OxygenUsed"], errors="raise").astype(int)
+    raw_members["Hired"] = pd.to_numeric(raw_members["Hired"], errors="raise").astype(int)
+    raw_members["Death"] = pd.to_numeric(raw_members["Death"], errors="raise").astype(int)
 
     return raw_members
 
@@ -303,7 +309,7 @@ def transform_world_bank_data(
     transformed_world_bank["HumanCapitalIndex"] = pd.to_numeric(
         transformed_world_bank["HumanCapitalIndex"], errors="raise"
     )
-    transformed_world_bank["InternetUsersPercentage"] = pd.to_numeric(
+    transformed_world_bank["InternetUsers"] = pd.to_numeric(
         transformed_world_bank["InternetUsersPercentage"], errors="raise"
     )
     transformed_world_bank["PhysiciansPer1000People"] = pd.to_numeric(
@@ -312,6 +318,39 @@ def transform_world_bank_data(
     transformed_world_bank["PoliticalStabilityIndex"] = pd.to_numeric(
         transformed_world_bank["PoliticalStabilityIndex"], errors="raise"
     )
+
+    def create_buckets_qcut_using_year(df, indicator, q=3):
+        def get_labels(n):
+            if (n == 3):
+                labels = ["Low", "Medium", "High"]
+            elif (n == 2):
+                labels = ["Low", "High"]
+            elif (n == 1):
+                labels = ["Low"]
+            else:
+                raise ValueError(f"q must be 1, 2, or 3 but got {n}")
+            return labels
+
+        def label_buckets(x):
+            new_x = pd.qcut(x, q=q, duplicates='drop')
+            return new_x.cat.rename_categories(get_labels(new_x.nunique()))
+
+        return df.groupby('Year')[indicator].transform(label_buckets)
+
+    transformed_world_bank["GDPPerCapitaBucket"] = create_buckets_qcut_using_year(transformed_world_bank, "GDPPerCapita")
+    context.log.info("Created GDPPerCapita buckets")
+
+    transformed_world_bank["HumanCapitalIndexBucket"] = create_buckets_qcut_using_year(transformed_world_bank, "HumanCapitalIndex")
+    context.log.info("Created HumanCapitalIndex buckets")
+
+    transformed_world_bank["InternetUsersPercentageBucket"] = create_buckets_qcut_using_year(transformed_world_bank, "InternetUsersPercentage")
+    context.log.info("Created InternetUsersPercentage buckets")
+
+    transformed_world_bank["PhysiciansPer1000PeopleBucket"] = create_buckets_qcut_using_year(transformed_world_bank, "PhysiciansPer1000People")
+    context.log.info("Created PhysiciansPer1000People buckets")
+
+    transformed_world_bank["PoliticalStabilityIndexBucket"] = create_buckets_qcut_using_year(transformed_world_bank, "PoliticalStabilityIndex")
+    context.log.info("Created PoliticalStabilityIndex buckets")
 
     context.log.info(f"Transformed World Bank data sample:\n{transformed_world_bank.head()}")
     return transformed_world_bank
@@ -336,11 +375,20 @@ def create_dim_date(context: OpExecutionContext, raw_members: pd.DataFrame) -> p
 
     dim_date.insert(0, "Id", dim_date.index + 1)
 
+    dim_date["Decade"] = (dim_date["Year"] // 10) * 10
     dim_date["Year"] = pd.to_numeric(dim_date["Year"], errors="raise")
     dim_date["Season"] = pd.to_numeric(dim_date["Season"], errors="raise")
 
     dim_date["Quarter"] = dim_date["Season"]
+    dim_date["QuarterName"] = dim_date["Season"].map(
+        {
+            1: "Winter",
+            2: "Spring",
+            3: "Summer",
+            4: "Autumn",
+        }
+    )
 
-    dim_date = dim_date[["Id", "Year", "Quarter"]]
+    dim_date = dim_date[["Id", "Year", "Quarter", "QuarterName", "Decade"]]
 
     return dim_date
